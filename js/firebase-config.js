@@ -2,7 +2,7 @@
 
 // =====================================================================
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyCm3jbGOIH0uaLkuA_-Wqwrmbn30T79IsM",
   authDomain: "aulanexus-ucaldas.firebaseapp.com",
   projectId: "aulanexus-ucaldas",
