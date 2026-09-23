@@ -101,7 +101,9 @@ function handleNotifs(list) {
 function ringBell() {
   const b = document.querySelector('.bell-btn');
   if (!b) return;
-  b.classList.remove('ring'); void b.offsetWidth; b.classList.add('ring');
+  // Clase exclusiva de la campana ("is-ringing"): no debe compartir nombre con el anillo de notas (.ring)
+  b.classList.remove('is-ringing'); void b.offsetWidth; b.classList.add('is-ringing');
+  b.addEventListener('animationend', () => b.classList.remove('is-ringing'), { once: true });
 }
 const NOTIF_IC = { post: 'megaphone', grade: 'award', submission: 'upload' };
 function renderNotifPanel() {
