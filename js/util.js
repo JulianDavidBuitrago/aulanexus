@@ -127,3 +127,16 @@ export function errMsg(e) {
   for (const k of Object.keys(map)) if (code.includes(k)) return map[k];
   return 'Ocurrió un error inesperado. Intente de nuevo.';
 }
+
+// ---------- Videos de YouTube ----------
+// Devuelve el ID de 11 caracteres de cualquier URL de YouTube (watch, youtu.be, shorts, embed, live) o null.
+export function youtubeId(url = '') {
+  const m = String(url).match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+  return m ? m[1] : null;
+}
+// Si el docente pega el código <iframe> que da YouTube, extrae la URL del atributo src.
+export function extractUrl(line = '') {
+  const t = String(line).trim();
+  const m = t.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
+  return m ? m[1] : t;
+}

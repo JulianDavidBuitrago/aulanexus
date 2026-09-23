@@ -1,7 +1,7 @@
 // Piezas visuales compartidas entre las vistas del docente y del estudiante
 import { icon } from './icons.js';
 import { hueOf, toast, modal, withLoading } from './ui.js';
-import { esc, initials, fmtDate, timeAgo, timeLeft, fmtGrade, gradeTone, linkify, langOf, fmtBytes, extOf, download, errMsg, docLabel } from './util.js';
+import { esc, initials, fmtDate, timeAgo, timeLeft, fmtGrade, gradeTone, linkify, langOf, fmtBytes, extOf, download, errMsg, docLabel, youtubeId } from './util.js';
 import { LIMITS } from './firebase-config.js';
 import { S, ctx, classById } from './state.js';
 
@@ -73,7 +73,9 @@ export function classCard(c, { students = [], posts = 0, manage = false } = {}) 
 export function postCard(p, { role, sub, stats, showClass = false, noFoot = false } = {}) {
   const t = TYPE[p.type] || TYPE.anuncio;
   const c = classById(p.classId);
-  const links = (p.links || []).filter(Boolean);
+  const allLinks = (p.links || []).filter(Boolean);
+  const videos = allLinks.map(youtubeId).filter(Boolean);
+  const links = allLinks.filter((l) => !youtubeId(l));
   const files = p.files || [];
   let foot = '';
   if (p.type === 'tarea' && noFoot) {
@@ -112,11 +114,42 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
       ${role === 'teacher' ? `<button class="btn btn-ghost btn-icon btn-sm btn-danger" data-act="delete-post" data-id="${p.id}" title="Eliminar publicación" aria-label="Eliminar publicación">${icon('trash')}</button>` : ''}
     </div>
     ${p.body ? `<div class="post-body">${linkify(p.body)}</div>` : ''}
+    ${videos.map((id) => videoEmbed(id, p.title)).join('')}
     ${links.length ? `<div class="post-links">${links.map((l) => `<a class="post-link" href="${esc(l)}" target="_blank" rel="noopener noreferrer">${icon('link')}<span>${esc(l.replace(/^https?:\/\//, ''))}</span></a>`).join('')}</div>` : ''}
     ${files.length ? `<div class="post-files">${files.map((f, i) => `<button class="post-link" data-act="open-files" data-id="${p.id}" data-i="${i}">${icon('code')}<span>${esc(f.name)}</span></button>`).join('')}</div>` : ''}
     ${foot}
   </article>`;
 }
+
+// Actualiza un listado de publicaciones reemplazando SOLO las tarjetas que cambiaron.
+// Así un video que se está reproduciendo no se reinicia cuando llega una notificación u otro cambio.
+export function patchFeed(container, cards, emptyHTML) {
+  if (!cards.length) { container.innerHTML = emptyHTML; return; }
+  const prev = new Map([...container.querySelectorAll(':scope > [data-post]')].map((n) => [n.dataset.post, n]));
+  if (!prev.size) container.innerHTML = '';
+  const tpl = document.createElement('template');
+  const nodes = cards.map((html) => {
+    tpl.innerHTML = html.trim();
+    const fresh = tpl.content.firstElementChild;
+    const old = prev.get(fresh.dataset.post);
+    if (old && old._html === html) return old;          // sin cambios: se conserva (y el video sigue)
+    if (old && old.querySelector('iframe') && stripVolatile(old._html) === stripVolatile(html)) return old;
+    fresh._html = html;
+    return fresh;
+  });
+  [...container.children].forEach((n) => { if (!nodes.includes(n)) n.remove(); });
+  nodes.forEach((n, i) => { if (container.children[i] !== n) container.insertBefore(n, container.children[i] || null); });
+}
+// Ignora textos que cambian solos con el tiempo ("hace 5 min", "Vence en 3 días")
+const stripVolatile = (h = '') => h.replace(/hace [^<]*|Vence en [^<]*|Venció hace [^<]*/g, '');
+
+// Video de YouTube incrustado (dominio sin cookies, carga diferida, proporción 16:9)
+export const videoEmbed = (id, title = 'Video') => `
+  <div class="video-embed">
+    <iframe src="https://www.youtube-nocookie.com/embed/${id}?rel=0" title="${esc(title)}" loading="lazy"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+  </div>`;
 
 // ---------- Visor de código con resaltado de sintaxis ----------
 export function codeViewer(files = []) {

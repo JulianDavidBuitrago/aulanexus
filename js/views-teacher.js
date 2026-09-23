@@ -3,10 +3,10 @@ import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notif
 import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { TEACHER_NAME, LIMITS } from './firebase-config.js';
-import { esc, norm, fmtDate, timeAgo, avg, fmtGrade, greeting, errMsg, CLASS_COLORS, download, debounce, docLabel } from './util.js';
+import { esc, norm, fmtDate, timeAgo, avg, fmtGrade, greeting, errMsg, CLASS_COLORS, download, debounce, docLabel, extractUrl, youtubeId } from './util.js';
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
-  dropzoneHTML, bindDropzone, openReview, TYPE, docText
+  dropzoneHTML, bindDropzone, openReview, TYPE, docText, patchFeed
 } from './components.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
@@ -232,7 +232,7 @@ function classDetail(el, id) {
               <div class="field"><label for="cp-title">Título</label><input class="input" id="cp-title" maxlength="140" placeholder="Título de la publicación"><div class="error"></div></div>
               <div class="field"><label for="cp-body">Contenido</label><textarea class="input" id="cp-body" rows="5" maxlength="8000" placeholder="Escriba el contenido. Los enlaces se convierten automáticamente en vínculos."></textarea></div>
               <div class="form-grid">
-                <div class="field"><label for="cp-links">Enlaces <span class="hint">uno por línea (Drive, PDF, video…)</span></label><textarea class="input" id="cp-links" rows="3" placeholder="https://…"></textarea></div>
+                <div class="field"><label for="cp-links">Enlaces <span class="hint">uno por línea · los de YouTube se muestran como video</span></label><textarea class="input" id="cp-links" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://drive.google.com/…"></textarea></div>
                 <div class="field" id="cp-due-f" hidden><label for="cp-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="cp-due" type="datetime-local"></div><div class="error"></div></div>
               </div>
               <div class="field"><span class="label">Archivos de código de apoyo <span class="hint">opcional</span></span>${dropzoneHTML(LIMITS.teacherExt, 'Adjunte ejemplos de código (clic o arrastrar)')}</div>
@@ -297,7 +297,8 @@ function classDetail(el, id) {
       if (!d.value) { ui.fieldError(d, 'Defina la fecha límite de la tarea.'); return; }
       dueAt = new Date(d.value).getTime();
     }
-    const links = $('#cp-links').value.split(/\n+/).map((s) => s.trim()).filter((s) => /^https?:\/\//i.test(s)).slice(0, 10);
+    const links = $('#cp-links').value.split(/\n+/).map(extractUrl).filter((s) => /^https?:\/\//i.test(s))
+      .map((s) => (youtubeId(s) ? `https://www.youtube.com/watch?v=${youtubeId(s)}` : s)).slice(0, 10);
     const post = { classId: id, type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, dueAt };
     ui.withLoading(e.currentTarget, async () => {
       try {
@@ -423,14 +424,14 @@ function classDetail(el, id) {
     composer.classList.toggle('hidden', !!c.archived);
 
     if (S.ready.posts) {
-      $('#cd-feed').innerHTML = posts.length ? posts.map((p) => {
+      patchFeed($('#cd-feed'), posts.map((p) => {
         let stats;
         if (p.type === 'tarea') {
           const ps = subs.filter((s) => s.postId === p.id);
           stats = { total: studs.length, submitted: ps.filter((s) => s.submittedAt).length, graded: ps.filter((s) => s.grade != null).length };
         }
         return postCard(p, { role: 'teacher', stats });
-      }).join('') : empty('layers', 'Sin publicaciones', 'Publique anuncios, material didáctico o tareas para esta clase.');
+      }), empty('layers', 'Sin publicaciones', 'Publique anuncios, material didáctico o tareas para esta clase.'));
     }
     renderStudents();
     renderGradebook();

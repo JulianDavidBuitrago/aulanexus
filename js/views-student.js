@@ -6,7 +6,7 @@ import { LIMITS } from './firebase-config.js';
 import { esc, fmtDate, timeLeft, avg, fmtGrade, greeting, firstName, errMsg, DOC_TYPES, docLabel, isEmail } from './util.js';
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
-  dropzoneHTML, bindDropzone, taskStatus, codeViewer, bindCodeViewer, fileItems
+  dropzoneHTML, bindDropzone, taskStatus, codeViewer, bindCodeViewer, fileItems, patchFeed
 } from './components.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
@@ -168,7 +168,7 @@ function home(el) {
     }
     if (!S.ready.posts) return;
     const feed = S.posts.filter((p) => act.some((c) => c.id === p.classId)).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 6);
-    el.querySelector('#h-feed').innerHTML = feed.length ? feed.map((p) => postCard(p, { role: 'student', sub: subOf(p.id), showClass: true })).join('') : empty('layers', 'Sin novedades', 'Cuando el docente publique contenido aparecerá aquí.');
+    patchFeed(el.querySelector('#h-feed'), feed.map((p) => postCard(p, { role: 'student', sub: subOf(p.id), showClass: true })), empty('layers', 'Sin novedades', 'Cuando el docente publique contenido aparecerá aquí.'));
     const due = openTasks().slice(0, 6);
     el.querySelector('#h-due').innerHTML = due.length ? due.map((p) => {
       const c = classById(p.classId), st = taskStatus(p, subOf(p.id));
@@ -277,8 +277,8 @@ function classView(el, id) {
     $('#cv-arch').innerHTML = c.archived ? `<div class="callout warn">${icon('archive')}<div>Esta clase fue archivada por el docente. Puede consultar el material y sus calificaciones, pero ya no se reciben entregas.</div></div>` : '';
     if (!S.ready.posts) return;
     const posts = postsOf(id).filter((p) => filter === 'all' || p.type === filter);
-    $('#cv-feed').innerHTML = posts.length ? posts.map((p) => postCard(p, { role: 'student', sub: subOf(p.id) })).join('')
-      : empty('layers', 'Sin publicaciones', filter === 'all' ? 'El docente aún no ha publicado contenido en esta clase.' : 'No hay publicaciones de este tipo.');
+    patchFeed($('#cv-feed'), posts.map((p) => postCard(p, { role: 'student', sub: subOf(p.id) })),
+      empty('layers', 'Sin publicaciones', filter === 'all' ? 'El docente aún no ha publicado contenido en esta clase.' : 'No hay publicaciones de este tipo.'));
   }
   update();
   return { update };
