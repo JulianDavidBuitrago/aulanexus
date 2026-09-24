@@ -270,8 +270,11 @@ function route() {
   const routes = S.role === 'teacher' ? Teacher.routes : Student.routes;
   const view = routes[name] || routes[''];
   destroyCurrent();
-  const el = document.getElementById('view');
-  el.innerHTML = '';
+  // Se reemplaza el contenedor por una copia limpia: así se descartan los "escuchadores" de clic
+  // de la sección anterior y un clic nunca se ejecuta dos veces.
+  const prevView = document.getElementById('view');
+  const el = prevView.cloneNode(false);
+  prevView.replaceWith(el);
   el.classList.remove('view-enter'); void el.offsetWidth; el.classList.add('view-enter');
   try { current = view(el, id) || {}; } catch (e) { console.error(e); el.innerHTML = '<div class="panel">Ocurrió un error al cargar esta sección.</div>'; }
 

@@ -126,6 +126,7 @@ export function createBackend() {
       return ref.id;
     },
     deletePost: (id) => deleteDoc(doc(db, 'posts', id)),
+    updatePost: (id, data) => updateDoc(doc(db, 'posts', id), { ...data, updatedAt: serverTimestamp() }),
 
     // ---------- Entregas / calificaciones ----------
     watchSubmissionsBy: (field, value, cb) =>

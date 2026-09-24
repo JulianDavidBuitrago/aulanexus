@@ -103,6 +103,76 @@ function classForm(c = null) {
   });
 }
 
+// ---------- Edición de publicaciones ----------
+const toLocalInput = (ms) => {
+  if (!ms) return '';
+  const d = new Date(ms), z = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`;
+};
+const cleanLinks = (text) => text.split(/\n+/).map(extractUrl).filter((s) => /^https?:\/\//i.test(s))
+  .map((s) => (youtubeId(s) ? `https://www.youtube.com/watch?v=${youtubeId(s)}` : s)).slice(0, 10);
+
+// hasSubs: si la tarea ya tiene entregas, no se permite cambiarla a otro tipo.
+function editPostForm(post, { hasSubs = false } = {}) {
+  const c = classById(post.classId);
+  let type = post.type;
+  let files = (post.files || []).map((f) => ({ ...f }));
+  const lockType = post.type === 'tarea' && hasSubs;
+  ui.modal({
+    title: 'Editar publicación', subtitle: esc(c?.name || ''), iconName: 'edit', size: 'lg',
+    body: `
+      <div class="segmented" id="ep-type">
+        ${[['anuncio', 'megaphone', 'Anuncio'], ['material', 'layers', 'Material didáctico'], ['tarea', 'clipboard', 'Tarea']].map(([t, ic, l]) =>
+          `<button type="button" class="${t === type ? 'active' : ''}" data-t="${t}" ${lockType && t !== 'tarea' ? 'disabled title="La tarea ya tiene entregas"' : ''}>${icon(ic)}${l}</button>`).join('')}
+      </div>
+      ${lockType ? `<div class="callout" style="font-size:12.5px">${icon('info')}<div>Esta tarea ya tiene entregas, por eso no se puede cambiar a otro tipo. Sí puede editar el contenido y la fecha límite.</div></div>` : ''}
+      <div class="field"><label for="ep-title">Título</label><input class="input" id="ep-title" maxlength="140" value="${esc(post.title)}"><div class="error"></div></div>
+      <div class="field"><label for="ep-body">Contenido</label><textarea class="input" id="ep-body" rows="6" maxlength="8000">${esc(post.body || '')}</textarea></div>
+      <div class="form-grid">
+        <div class="field"><label for="ep-links">Enlaces <span class="hint">uno por línea · YouTube se muestra como video</span></label><textarea class="input" id="ep-links" rows="3">${esc((post.links || []).join('\n'))}</textarea></div>
+        <div class="field" id="ep-due-f" ${type === 'tarea' ? '' : 'hidden'}><label for="ep-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="ep-due" type="datetime-local" value="${toLocalInput(post.dueAt)}"></div><div class="error"></div></div>
+      </div>
+      <div class="field"><span class="label">Archivos de código de apoyo</span>${dropzoneHTML(LIMITS.teacherExt, 'Agregue o quite archivos (clic o arrastrar)')}</div>
+      <label class="check"><input type="checkbox" id="ep-notify"><span>Notificar a los estudiantes de la clase que la publicación fue actualizada</span></label>`,
+    footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save data-loading="Guardando…">${icon('check')}Guardar cambios</button>`,
+    onMount(el, m) {
+      const $m = (q) => el.querySelector(q);
+      bindDropzone(el, { allowed: LIMITS.teacherExt, get: () => files, set: (v) => { files = v; } });
+      $m('#ep-type').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-t]'); if (!b || b.disabled) return;
+        type = b.dataset.t;
+        $m('#ep-type').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+        $m('#ep-due-f').hidden = type !== 'tarea';
+      });
+      $m('[data-save]').addEventListener('click', (e) => {
+        ui.clearErrors(el);
+        const title = $m('#ep-title');
+        if (title.value.trim().length < 3) { ui.fieldError(title, 'Escriba un título.'); return; }
+        let dueAt = null;
+        if (type === 'tarea') {
+          const d = $m('#ep-due');
+          if (!d.value) { ui.fieldError(d, 'Defina la fecha límite de la tarea.'); return; }
+          dueAt = new Date(d.value).getTime();
+        }
+        const data = { type, title: title.value.trim(), body: $m('#ep-body').value.trim(), links: cleanLinks($m('#ep-links').value), files, dueAt };
+        const notify = $m('#ep-notify').checked;
+        ui.withLoading(e.currentTarget, async () => {
+          try {
+            await ctx.B.updatePost(post.id, data);
+            let msg = 'Los cambios ya son visibles para los estudiantes.';
+            if (notify) {
+              const n = await notifyClass(post.classId, { title: `Publicación actualizada en ${c?.name || 'la clase'}`, message: data.title, link: `#/clase/${post.classId}` });
+              msg = `Se notificó a ${n} ${n === 1 ? 'estudiante' : 'estudiantes'}.`;
+            }
+            ui.toast('Publicación actualizada', 'success', msg);
+            m.close();
+          } catch (er) { ui.toast('No se pudo guardar', 'error', errMsg(er)); }
+        });
+      });
+    }
+  });
+}
+
 // =====================================================================
 //  PANEL
 // =====================================================================
@@ -297,8 +367,7 @@ function classDetail(el, id) {
       if (!d.value) { ui.fieldError(d, 'Defina la fecha límite de la tarea.'); return; }
       dueAt = new Date(d.value).getTime();
     }
-    const links = $('#cp-links').value.split(/\n+/).map(extractUrl).filter((s) => /^https?:\/\//i.test(s))
-      .map((s) => (youtubeId(s) ? `https://www.youtube.com/watch?v=${youtubeId(s)}` : s)).slice(0, 10);
+    const links = cleanLinks($('#cp-links').value);
     const post = { classId: id, type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, dueAt };
     ui.withLoading(e.currentTarget, async () => {
       try {
@@ -320,6 +389,11 @@ function classDetail(el, id) {
     if (await classActions(e)) return;
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act;
+    if (act === 'edit-post') {
+      const p = S.posts.find((x) => x.id === b.dataset.id);
+      if (p) editPostForm(p, { hasSubs: subs.some((x) => x.postId === p.id) });
+      return;
+    }
     if (act === 'delete-post') {
       const p = S.posts.find((x) => x.id === b.dataset.id);
       const ok = await ui.confirmDialog({ title: 'Eliminar publicación', danger: true, confirm: 'Eliminar', iconName: 'trash', message: `Se eliminará <b>${esc(p?.title)}</b>. Esta acción no se puede deshacer.` });
@@ -492,6 +566,18 @@ function taskDetail(el, postId) {
       const post = S.posts.find((p) => p.id === postId);
       openReview({ post, student: studentById(b.dataset.review), sub: subs.find((s) => s.studentId === b.dataset.review) });
     }
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'edit-post') { const p = S.posts.find((x) => x.id === postId); if (p) editPostForm(p, { hasSubs: subs.length > 0 }); return; }
+    if (act === 'delete-post') {
+      const p = S.posts.find((x) => x.id === postId);
+      ui.confirmDialog({ title: 'Eliminar publicación', danger: true, confirm: 'Eliminar', iconName: 'trash', message: `Se eliminará <b>${esc(p?.title)}</b>. Esta acción no se puede deshacer.` })
+        .then(async (ok) => {
+          if (!ok) return;
+          try { await ctx.B.deletePost(postId); ui.toast('Publicación eliminada', 'success'); location.hash = `#/clase/${p.classId}`; }
+          catch (er) { ui.toast('Error', 'error', errMsg(er)); }
+        });
+      return;
+    }
     const f = e.target.closest('[data-act="open-files"]');
     if (f) { const p = S.posts.find((x) => x.id === postId); openFiles(p.title, p.files, +f.dataset.i); }
   });
@@ -504,7 +590,8 @@ function taskDetail(el, postId) {
     ui.setCrumb(post.title, `${(c?.name || '').toUpperCase()} / TAREA`);
     $('#td-back').href = `#/clase/${post.classId}`;
     $('#td-back').lastChild.textContent = `Volver a ${c?.name || 'la clase'}`;
-    if (!$('#td-post').dataset.done) { $('#td-post').innerHTML = postCard(post, { role: 'teacher', noFoot: true }); $('#td-post').dataset.done = 1; }
+    const head = postCard(post, { role: 'teacher', noFoot: true });
+    if ($('#td-post')._html !== head) { $('#td-post').innerHTML = head; $('#td-post')._html = head; }
 
     // Estudiantes inscritos + quienes entregaron aunque ya no estén inscritos
     const enrolled = studentsOf(post.classId);

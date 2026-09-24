@@ -109,9 +109,13 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
           <span class="badge" style="padding:2px 8px">${t.label}</span>
           ${showClass && c ? `<span class="chip chip-c" style="--c:${colorVar(c.color)};padding:2px 8px">${esc(c.name)}</span>` : ''}
           <span title="${fmtDate(p.createdAt)}">${timeAgo(p.createdAt)}</span>
+          ${p.updatedAt ? `<span class="edited" title="Editado ${fmtDate(p.updatedAt)}">${icon('edit')}editado</span>` : ''}
         </div>
       </div>
-      ${role === 'teacher' ? `<button class="btn btn-ghost btn-icon btn-sm btn-danger" data-act="delete-post" data-id="${p.id}" title="Eliminar publicación" aria-label="Eliminar publicación">${icon('trash')}</button>` : ''}
+      ${role === 'teacher' ? `<div class="post-actions">
+        <button class="btn btn-ghost btn-icon btn-sm" data-act="edit-post" data-id="${p.id}" title="Editar publicación" aria-label="Editar publicación">${icon('edit')}</button>
+        <button class="btn btn-ghost btn-icon btn-sm btn-danger" data-act="delete-post" data-id="${p.id}" title="Eliminar publicación" aria-label="Eliminar publicación">${icon('trash')}</button>
+      </div>` : ''}
     </div>
     ${p.body ? `<div class="post-body">${linkify(p.body)}</div>` : ''}
     ${videos.map((id) => videoEmbed(id, p.title)).join('')}

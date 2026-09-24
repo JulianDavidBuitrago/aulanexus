@@ -282,6 +282,7 @@ export function createBackend() {
     watchAllPosts: (cb) => watch(() => values('posts'), cb),
     async createPost(p) { await wait(); const id = 'p-' + newId(); db.posts[id] = { id, ...p, createdAt: Date.now() }; commit(); return id; },
     async deletePost(id) { await wait(); delete db.posts[id]; commit(); },
+    async updatePost(id, data) { await wait(); if (!db.posts[id]) throw err('permission-denied'); Object.assign(db.posts[id], clone(data), { updatedAt: Date.now() }); commit(); },
 
     watchSubmissionsBy: (field, value, cb) => watch(() => values('submissions').filter((s) => s[field] === value), cb),
     async submit(s) {
