@@ -738,6 +738,7 @@ function studentDetail(el, uid) {
               <h1 style="font-size:clamp(22px,3vw,32px)">${esc(s.fullName)}</h1>
               <div class="hero-meta"><span>${icon('mail')}${esc(s.email)}</span><span>${icon('calendar')}Registrado ${fmtDate(s.createdAt, false)}</span>
                 ${s.mustChangePassword ? `<span class="badge b-warning">${icon('key')}Aún no cambia la clave inicial</span>` : ''}
+                ${s.role === 'teacher' ? `<span class="badge b-accent">${icon('grad')}También es docente</span>` : ''}
                 ${others.length ? `<span>${icon('book')}${others.length} clase(s) con otros docentes</span>` : ''}</div>
               <div class="hero-actions" style="margin-top:14px"><button class="btn btn-sm" data-reset-pw>${icon('key')}Enviar enlace para restablecer contraseña</button></div>
             </div>

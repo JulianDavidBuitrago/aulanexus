@@ -54,7 +54,10 @@ function analyzeRow(p, classIds, seen) {
   const ex = findExisting(p);
   if (ex.conflict) return { kind: 'error', errors: [ex.conflict] };
   if (ex.student) {
-    const missing = classIds.filter((id) => !(ex.student.classIds || []).includes(id));
+    // Un docente-estudiante no puede quedar inscrito en su propia clase
+    const own = classIds.filter((id) => classById(id)?.ownerId === ex.student.uid);
+    if (own.length && own.length === classIds.length) return { kind: 'error', errors: ['Es el docente de la(s) clase(s) seleccionada(s)'] };
+    const missing = classIds.filter((id) => !own.includes(id) && !(ex.student.classIds || []).includes(id));
     return missing.length ? { kind: 'exists', student: ex.student, missing } : { kind: 'already', student: ex.student };
   }
   return { kind: 'new' };
@@ -72,10 +75,17 @@ async function processPerson(p, classIds) {
     return { status: 'enrolled', detail: `Cuenta existente · inscrito en ${a.missing.length} clase(s)` };
   }
   const password = initialPassword(p.fullName, p.docNumber);
-  const uid = await ctx.B.provisionAccount({
+  let uid;
+  try {
+    uid = await ctx.B.provisionAccount({
     password,
     profile: { role: 'student', fullName: p.fullName, studentCode: p.studentCode, docType: p.docType, docNumber: p.docNumber, email: p.email, classIds }
-  });
+    });
+  } catch (er) {
+    // El correo existe pero no es estudiante (p. ej. un docente sin acceso de estudiante)
+    if ((er.code || '').includes('email-already-in-use')) return { status: 'error', detail: 'El correo pertenece a otra cuenta de la plataforma (posiblemente un docente). Si es un docente que también estudia, el administrador debe habilitarle el acceso como estudiante.' };
+    throw er;
+  }
   await ctx.B.addNotifications([{ userId: uid, type: 'post', title: '¡Bienvenido(a) a AulaNexus!', message: `Fue inscrito en: ${names}`, link: '#/clases' }]).catch(() => {});
   return { status: 'created', password, detail: 'Cuenta creada · debe cambiar la contraseña al ingresar' };
 }

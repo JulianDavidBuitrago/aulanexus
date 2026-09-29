@@ -6,7 +6,7 @@ import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { TEACHER_EMAIL, TEACHER_NAME } from './firebase-config.js';
 import { esc, norm, errMsg, DOC_TYPES, initialPassword, validatePerson, debounce, formatName } from './util.js';
-import { avatar, empty, skeletonLines, showCredentials } from './components.js';
+import { avatar, empty, skeletonLines, showCredentials, colorVar } from './components.js';
 
 export const routes = { admin: adminView };
 
@@ -65,6 +65,80 @@ function teacherForm(t = null) {
               showCredentials({ name: d.fullName, email: d.email, password, role: 'docente' });
             }
           } catch (er) { ui.toast('No se pudo guardar', 'error', errMsg(er)); if ((er.code || '').includes('email')) ui.fieldError($('#tf-email'), errMsg(er)); }
+        });
+      });
+    }
+  });
+}
+
+// ---------- Doble rol: acceso del docente como estudiante ----------
+function studentAccessForm(t) {
+  const has = t.studentAccess === true;
+  // Clases activas de OTROS docentes (nadie puede ser estudiante de su propia clase)
+  const options = S.classes.filter((c) => !c.archived && c.ownerId !== t.uid)
+    .sort((a, b) => (a.ownerName || '').localeCompare(b.ownerName || '', 'es') || a.name.localeCompare(b.name, 'es'));
+  const current = has ? (t.classIds || []) : [];
+  ui.modal({
+    title: 'Acceso como estudiante', subtitle: `${esc(t.fullName)} · ${esc(t.email)}`, iconName: 'userCheck', size: 'lg',
+    body: `
+      <div class="setting-row">
+        <div class="sr-text"><b>Habilitar también el rol de estudiante</b>
+          <p>Usará la misma cuenta y contraseña. En la barra superior verá un selector <strong>Docente / Estudiante</strong>. Como estudiante solo verá las clases en las que esté inscrito, y no podrá inscribirse en sus propias clases.</p></div>
+        <label class="switch"><input type="checkbox" id="sa-on" ${has ? 'checked' : ''}><span class="track"></span><span class="sr-only">Acceso como estudiante</span></label>
+      </div>
+      <div id="sa-fields" class="stack" style="gap:16px" ${has ? '' : 'hidden'}>
+        <div class="form-grid">
+          <div class="field"><label for="sa-code">Código de estudiante</label><div class="input-wrap">${icon('hash')}<input class="input mono" id="sa-code" value="${esc(t.studentCode || '')}" placeholder="Ej. 1702310045"></div><div class="error"></div></div>
+          <div class="field"><span class="label">Documento</span><div class="input mono" style="display:flex;align-items:center;opacity:.8">${esc(t.docType || '')} ${esc(t.docNumber || '—')}</div></div>
+        </div>
+        <div class="field"><span class="label">Inscribir en las clases <span class="hint">de otros docentes</span></span>
+          ${options.length ? `<div class="pick-grid">${options.map((c) => `
+            <label class="pick" style="--c:${colorVar(c.color)}">
+              <input type="checkbox" name="sa-cls" value="${c.id}" ${current.includes(c.id) ? 'checked' : ''}>
+              <span class="pick-dot">${icon('book')}</span>
+              <span class="pick-body"><b>${esc(c.name)}</b><span>${esc([c.code, c.ownerName].filter(Boolean).join(' · '))}</span></span>
+              <span class="pick-check">${icon('check')}</span>
+            </label>`).join('')}</div>` : `<div class="callout">${icon('info')}<div>No hay clases activas de otros docentes. Puede habilitar el acceso ahora y que los docentes lo inscriban después desde <b>Inscripciones</b>.</div></div>`}
+          <div class="error" id="sa-cls-err"></div>
+        </div>
+      </div>
+      ${has ? `<div class="callout warn" id="sa-off-note" hidden>${icon('alert')}<div>Al retirar el acceso deja de ver sus clases como estudiante. Sus entregas y notas se conservan y reaparecen si se vuelve a habilitar.</div></div>` : ''}`,
+    footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save data-loading="Guardando…">${icon('check')}Guardar</button>`,
+    onMount(el, m) {
+      const $ = (q) => el.querySelector(q);
+      $('#sa-on').addEventListener('change', () => {
+        $('#sa-fields').hidden = !$('#sa-on').checked;
+        if ($('#sa-off-note')) $('#sa-off-note').hidden = $('#sa-on').checked;
+      });
+      $('[data-save]').addEventListener('click', (e) => {
+        ui.clearErrors(el);
+        const on = $('#sa-on').checked;
+        if (!on && !has) { m.close(); return; }
+        ui.withLoading(e.currentTarget, async () => {
+          try {
+            if (!on) {
+              await ctx.B.revokeStudentAccess(t);
+              ui.toast('Acceso de estudiante retirado', 'success', t.fullName);
+              m.close(); return;
+            }
+            const code = $('#sa-code').value.trim().toUpperCase();
+            if (!/^[A-Za-z0-9-]{4,20}$/.test(code)) { ui.fieldError($('#sa-code'), 'Código inválido (4 a 20 caracteres, sin espacios).'); return; }
+            if (!t.docNumber) { ui.toast('Faltan datos', 'error', 'Edite el docente y registre su número de documento.'); return; }
+            // Unicidad: el código y el documento no pueden pertenecer a otro estudiante
+            const other = S.students.find((s) => s.uid !== t.uid && (String(s.studentCode).toUpperCase() === code || String(s.docNumber).toUpperCase() === String(t.docNumber).toUpperCase()));
+            if (other) {
+              const by = String(other.studentCode).toUpperCase() === code ? 'el código' : 'el documento';
+              ui.fieldError($('#sa-code'), `Ya existe un estudiante con ${by}: ${other.fullName} (${other.email}). Si es la misma persona, retire esa cuenta de estudiante antes de continuar.`);
+              return;
+            }
+            const classIds = [...el.querySelectorAll('input[name="sa-cls"]:checked')].map((i) => i.value);
+            await ctx.B.grantStudentAccess(t, { studentCode: code, classIds });
+            if (!has) {
+              await ctx.B.addNotifications([{ userId: t.uid, type: 'post', title: 'Acceso como estudiante habilitado', message: 'Use el selector Docente / Estudiante de la barra superior.', link: '#/' }]).catch(() => {});
+            }
+            ui.toast(has ? 'Acceso de estudiante actualizado' : 'Acceso de estudiante habilitado', 'success', `${t.fullName} · ${classIds.length} clase(s)`);
+            m.close();
+          } catch (er) { ui.toast('No se pudo guardar', 'error', errMsg(er)); }
         });
       });
     }
@@ -142,6 +216,7 @@ function adminView(el) {
       });
       if (ok) { try { await ctx.B.updateUser(t.uid, { active: !off }); ui.toast(off ? 'Docente deshabilitado' : 'Docente habilitado', 'success', t.fullName); } catch (er) { ui.toast('Error', 'error', errMsg(er)); } }
     }
+    if (b.dataset.act === 'student-access' && t) { studentAccessForm(t); return; }
     if (b.dataset.act === 'reset-teacher' && t) {
       const ok = await ui.confirmDialog({ title: 'Restablecer contraseña', iconName: 'key', confirm: 'Enviar correo', message: `Se enviará a <b>${esc(t.email)}</b> un enlace para crear una nueva contraseña.` });
       if (ok) { try { await ctx.B.resetPassword(t.email); ui.toast('Correo enviado', 'success', ctx.demo ? 'En modo demostración no se envían correos.' : t.email); } catch (er) { ui.toast('Error', 'error', errMsg(er)); } }
@@ -171,7 +246,7 @@ function adminView(el) {
         const cls = classesOf(t.uid, t.isAdmin);
         const act = cls.filter((c) => !c.archived).length;
         const status = t.isAdmin ? '<span class="badge b-accent">Administrador</span>'
-          : `${t.active === false ? '<span class="badge b-danger dot">Deshabilitado</span>' : '<span class="badge b-success dot">Activo</span>'}${t.mustChangePassword ? ' <span class="badge b-warning">Clave inicial</span>' : ''}`;
+          : `${t.active === false ? '<span class="badge b-danger dot">Deshabilitado</span>' : '<span class="badge b-success dot">Activo</span>'}${t.mustChangePassword ? ' <span class="badge b-warning">Clave inicial</span>' : ''}${t.studentAccess ? ` <span class="badge b-info" title="Código ${esc(t.studentCode || '')} · ${(t.classIds || []).length} clase(s)">${icon('user')}También estudiante</span>` : ''}`;
         return `<tr>
           <td class="who-cell"><div class="who">${avatar(t.fullName, '', t.uid)}<div style="min-width:0"><b>${esc(t.fullName)}</b><small>${esc(t.email)}</small></div></div></td>
           <td class="num" data-label="Documento">${t.docNumber ? `${esc(t.docType)} ${esc(t.docNumber)}` : '—'}</td>
@@ -179,6 +254,7 @@ function adminView(el) {
           <td data-label="Estado">${status}</td>
           <td class="actions-cell"><div class="actions">${t.isAdmin ? '<span class="muted" style="font-size:12px">Su cuenta</span>' : `
             <button class="btn btn-sm" data-act="edit-teacher" data-id="${t.uid}" title="Editar">${icon('edit')}<span class="hide-sm">Editar</span></button>
+            <button class="btn btn-sm ${t.studentAccess ? 'btn-primary' : ''}" data-act="student-access" data-id="${t.uid}" title="Acceso como estudiante">${icon('userCheck')}<span class="hide-sm">Estudiante</span></button>
             <button class="btn btn-sm" data-act="reset-teacher" data-id="${t.uid}" title="Enviar correo para restablecer contraseña">${icon('key')}</button>
             <button class="btn btn-sm ${t.active === false ? '' : 'btn-danger'}" data-act="toggle-teacher" data-id="${t.uid}" title="${t.active === false ? 'Habilitar' : 'Deshabilitar'}">${icon('power')}<span class="hide-sm">${t.active === false ? 'Habilitar' : 'Deshabilitar'}</span></button>`}
           </div></td></tr>`;

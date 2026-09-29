@@ -106,7 +106,7 @@ async function joinModal() {
   let open = [];
   try { open = await ctx.B.listOpenClasses(); } catch (er) { ui.toast('Error', 'error', errMsg(er)); return; }
   const mine = S.profile.classIds || [];
-  const avail = open.filter((c) => !mine.includes(c.id)).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const avail = open.filter((c) => !mine.includes(c.id) && c.ownerId !== S.user.uid).sort((a, b) => a.name.localeCompare(b.name, 'es'));
   ui.modal({
     title: 'Inscribirme en clases', subtitle: 'Seleccione las clases en las que está matriculado.', iconName: 'userPlus',
     body: avail.length ? `<div class="pick-list">${avail.map((c) => `

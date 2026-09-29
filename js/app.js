@@ -21,7 +21,7 @@ let seenNotifs = null;
 let waitingProfile = false;
 let lastGate = '';
 // "Compuerta" de acceso: si cambia (perfil cargado, clave cambiada, docente deshabilitado) se vuelve a enrutar
-const gateKey = () => `${!!S.user}|${S.isAdmin}|${S.ready.profile ? 1 : 0}|${!!S.profile}|${S.profile?.mustChangePassword ? 1 : 0}|${S.profile?.active === false ? 0 : 1}|${S.role}`;
+const gateKey = () => `${!!S.user}|${S.isAdmin}|${S.dual ? 1 : 0}|${S.ready.profile ? 1 : 0}|${!!S.profile}|${S.profile?.mustChangePassword ? 1 : 0}|${S.profile?.active === false ? 0 : 1}|${S.role}`;
 
 export function start(backend, { demo }) {
   ctx.B = backend; ctx.demo = demo;
@@ -46,13 +46,28 @@ function clearSubs() {
 }
 function destroyCurrent() { try { current?.destroy?.(); } catch { /* */ } current = null; }
 
+// ---------- Doble rol (docente con acceso de estudiante) ----------
+const modeKey = (uid) => `an-mode-${uid}`;
+const readMode = (uid) => { try { return localStorage.getItem(modeKey(uid)); } catch { return null; } };
+const saveMode = (uid, m) => { try { localStorage.setItem(modeKey(uid), m); } catch { /* */ } };
+// Cambia entre "Vista docente" y "Vista estudiante": reinicia las suscripciones del rol elegido
+export function switchMode(mode, link = '#/') {
+  if (!S.user || !S.dual || mode === S.role) return;
+  saveMode(S.user.uid, mode);
+  history.replaceState(null, '', link);
+  onAuth(S.user);
+  ui.toast(mode === 'student' ? 'Vista estudiante' : 'Vista docente', 'info', mode === 'student' ? 'Está viendo sus clases como estudiante.' : 'Está gestionando sus clases como docente.', 3000);
+}
+// Las notificaciones de entregas son del rol docente; las demás (publicaciones, notas, inscripciones) del rol estudiante
+const notifMode = (n) => (n.type === 'submission' ? 'teacher' : 'student');
+
 function onAuth(user) {
   clearSubs(); destroyCurrent();
   // Al cambiar de sesión se cierran las ventanas emergentes abiertas
   document.getElementById('modals').innerHTML = '';
   document.body.style.overflow = '';
   shellMounted = false; seenNotifs = null; waitingProfile = false; lastGate = '';
-  Object.assign(S, { user, role: null, isAdmin: false, profile: null, classes: [], students: [], teachers: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], ready: {} });
+  Object.assign(S, { user, role: null, isAdmin: false, dual: false, profile: null, classes: [], students: [], teachers: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], ready: {} });
   if (!user) { route(); return; }
 
   const B = ctx.B;
@@ -81,7 +96,13 @@ function onAuth(user) {
       S.profile = p;
       S.ready.profile = true;
       if (p) {
-        S.role = p.role === 'teacher' ? 'teacher' : 'student';
+        // Solo el administrador puede otorgar studentAccess a un docente
+        const wasDual = S.dual;
+        S.dual = p.role === 'teacher' && p.studentAccess === true;
+        if (started && wasDual !== S.dual) shellMounted = false; // mostrar u ocultar el selector en vivo
+        const want = p.role !== 'teacher' ? 'student' : (S.dual && readMode(user.uid) === 'student' ? 'student' : 'teacher');
+        if (started && want !== S.role) { onAuth(user); return; } // p. ej., le retiraron el acceso estando en vista estudiante
+        S.role = want;
         startRole();
         if (S.role === 'student') syncClassPosts(p.classIds || []);
         if (p.email && user.email && p.email !== user.email) B.syncEmail?.(user.uid, user.email);
@@ -179,7 +200,7 @@ function mountShell() {
   root.innerHTML = `
   <div class="app">
     <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
-      <a class="brand" href="#/">${LOGO}<div><b>${APP.name}</b><small>${S.isAdmin ? 'Administración' : S.role === 'teacher' ? 'Panel docente' : 'Portal estudiante'}</small></div></a>
+      <a class="brand" href="#/">${LOGO}<div><b>${APP.name}</b><small>${S.isAdmin ? 'Administración' : S.role === 'teacher' ? 'Panel docente' : S.dual ? 'Vista estudiante' : 'Portal estudiante'}</small></div></a>
       <div class="nav-label">Navegación</div>
       <nav class="nav">${links()}</nav>
       <div class="sidebar-foot">
@@ -193,6 +214,10 @@ function mountShell() {
         <button class="btn btn-ghost btn-icon menu-btn" id="menu-btn" aria-label="Abrir menú">${icon('menu')}</button>
         <div class="crumb" id="crumb"></div>
         <div class="top-actions">
+          ${S.dual ? `<div class="role-switch" role="group" aria-label="Cambiar de vista">
+            <button type="button" data-mode="teacher" class="${S.role === 'teacher' ? 'active' : ''}" aria-pressed="${S.role === 'teacher'}" title="Vista docente">${icon('grad')}<span>Docente</span></button>
+            <button type="button" data-mode="student" class="${S.role === 'student' ? 'active' : ''}" aria-pressed="${S.role === 'student'}" title="Vista estudiante">${icon('user')}<span>Estudiante</span></button>
+          </div>` : ''}
           ${ctx.demo ? `<button class="demo-pill" id="demo-pill" title="Datos de ejemplo guardados en este navegador. Clic para restablecer.">${icon('cpu')}<span>DEMO</span></button>` : ''}
           ${ui.themeButton()}
           <div class="bell-wrap">
@@ -209,6 +234,10 @@ function mountShell() {
   const sidebar = document.getElementById('sidebar'), scrim = document.getElementById('scrim');
   document.getElementById('menu-btn').onclick = () => { sidebar.classList.add('open'); scrim.classList.add('show'); };
   scrim.onclick = closeDrawer;
+  document.querySelector('.role-switch')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (b) switchMode(b.dataset.mode);
+  });
   document.getElementById('more-btn')?.addEventListener('click', (e) => { e.preventDefault(); sidebar.classList.add('open'); scrim.classList.add('show'); });
 
   const panel = document.getElementById('notif-panel');
@@ -229,6 +258,7 @@ function mountShell() {
       const n = S.notifications.find((x) => x.id === it.dataset.np);
       panel.classList.add('hidden');
       if (n && !n.read) ctx.B.markRead(n.id).catch(() => {});
+      if (S.dual && n && notifMode(n) !== S.role) { switchMode(notifMode(n), n.link || '#/'); return; }
       if (n?.link) location.hash = n.link;
     }
   });
@@ -263,7 +293,8 @@ function updateChrome() {
   renderNotifPanel();
 
   const name = S.role === 'teacher' ? teacherName() : S.profile?.fullName || '';
-  const sub = S.role === 'teacher' ? (S.isAdmin ? 'Administrador · ' : 'Docente · ') + S.user.email : S.profile?.studentCode ? `Código ${S.profile.studentCode}` : S.user.email;
+  const sub = S.role === 'teacher' ? (S.isAdmin ? 'Administrador · ' : S.dual ? 'Docente y estudiante · ' : 'Docente · ') + S.user.email
+    : S.profile?.studentCode ? `${S.dual ? 'Vista estudiante · ' : ''}Código ${S.profile.studentCode}` : S.user.email;
   const uc = document.getElementById('user-card');
   if (uc) {
     const sig = name + sub;

@@ -155,7 +155,33 @@ export function createBackend() {
     },
     joinClasses: (uid, ids) => updateDoc(doc(db, 'users', uid), { classIds: arrayUnion(...ids) }),
     removeFromClass: (uid, classId) => updateDoc(doc(db, 'users', uid), { classIds: arrayRemove(classId) }),
-    watchStudents: (cb) => onSnapshot(query(collection(db, 'users'), where('role', '==', 'student')), (qs) => cb(list(qs)), fail),
+    // Estudiantes = rol estudiante + docentes a los que el administrador habilitó el acceso como estudiante
+    watchStudents(cb) {
+      let a = [], b = [], ra = false, rb = false;
+      const out = () => { if (!ra || !rb) return; const m = new Map(); [...a, ...b].forEach((u) => m.set(u.id, u)); cb([...m.values()]); };
+      const u1 = onSnapshot(query(collection(db, 'users'), where('role', '==', 'student')), (qs) => { a = list(qs); ra = true; out(); }, fail);
+      const u2 = onSnapshot(query(collection(db, 'users'), where('studentAccess', '==', true)), (qs) => { b = list(qs); rb = true; out(); }, (e) => { fail(e); rb = true; out(); });
+      return () => { u1(); u2(); };
+    },
+    // ---------- Doble rol: docente con acceso como estudiante (solo administrador) ----------
+    async grantStudentAccess(t, { studentCode, classIds }) {
+      const b = writeBatch(db);
+      const had = t.studentAccess === true;
+      if (!had || codeKey(t.studentCode || '') !== codeKey(studentCode)) {
+        if (had && t.studentCode) b.delete(doc(db, 'uniques', codeKey(t.studentCode)));
+        b.set(doc(db, 'uniques', codeKey(studentCode)), { uid: t.uid, kind: 'code' });
+      }
+      if (!had) b.set(doc(db, 'uniques', docKey(t.docType, t.docNumber)), { uid: t.uid, kind: 'doc' });
+      b.update(doc(db, 'users', t.uid), { studentAccess: true, studentCode, classIds, updatedAt: serverTimestamp() });
+      try { await b.commit(); } catch (e) { if (e.code === 'permission-denied') throw err('app/duplicate'); throw e; }
+    },
+    async revokeStudentAccess(t) {
+      const b = writeBatch(db);
+      if (t.studentCode) b.delete(doc(db, 'uniques', codeKey(t.studentCode)));
+      if (t.docNumber) b.delete(doc(db, 'uniques', docKey(t.docType, t.docNumber)));
+      b.update(doc(db, 'users', t.uid), { studentAccess: false, updatedAt: serverTimestamp() });
+      await b.commit();
+    },
 
     // ---------- Clases ----------
     watchClasses: (cb) => onSnapshot(collection(db, 'classes'), (qs) => cb(list(qs)), fail),

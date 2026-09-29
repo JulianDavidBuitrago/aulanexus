@@ -310,7 +310,27 @@ export function createBackend() {
       await wait(); const u = db.users[id];
       if (current?.uid === id && db.settings.allowSelfRegistration === false) throw err('permission-denied'); u.classIds = [...new Set([...(u.classIds || []), ...ids])]; commit(); },
     async removeFromClass(id, cid) { await wait(); const u = db.users[id]; u.classIds = (u.classIds || []).filter((x) => x !== cid); commit(); },
-    watchStudents: (cb) => watch(() => values('users').filter((u) => u.role === 'student'), cb),
+    watchStudents: (cb) => watch(() => values('users').filter((u) => u.role === 'student' || u.studentAccess === true), cb),
+    async grantStudentAccess(t, { studentCode, classIds }) {
+      await wait(); need();
+      const u = db.users[t.uid];
+      const had = u.studentAccess === true;
+      const newC = codeKey(studentCode), oldC = u.studentCode ? codeKey(u.studentCode) : null, dK = docKey(u.docType, u.docNumber);
+      if ((newC !== oldC || !had) && db.uniques[newC] && db.uniques[newC].uid !== u.uid) throw err('app/duplicate');
+      if (!had && db.uniques[dK] && db.uniques[dK].uid !== u.uid) throw err('app/duplicate');
+      if (had && oldC && oldC !== newC) delete db.uniques[oldC];
+      db.uniques[newC] = { uid: u.uid }; db.uniques[dK] = { uid: u.uid };
+      Object.assign(u, { studentAccess: true, studentCode, classIds: clone(classIds), updatedAt: Date.now() });
+      commit();
+    },
+    async revokeStudentAccess(t) {
+      await wait(); need();
+      const u = db.users[t.uid];
+      if (u.studentCode) delete db.uniques[codeKey(u.studentCode)];
+      delete db.uniques[docKey(u.docType, u.docNumber)];
+      Object.assign(u, { studentAccess: false, updatedAt: Date.now() });
+      commit();
+    },
 
     watchClasses: (cb) => watch(() => values('classes'), cb),
     async listOpenClasses() { await wait(300); return values('classes').filter((c) => !c.archived); },
@@ -329,6 +349,7 @@ export function createBackend() {
       await wait(600);
       const id = `${s.postId}_${s.studentId}`;
       if (db.submissions[id]?.grade != null) throw err('permission-denied');
+      if (db.classes[s.classId]?.ownerId === current?.uid) throw err('permission-denied');
       db.submissions[id] = { id, ...clone(s), grade: null, feedback: '', status: 'entregado', submittedAt: Date.now(), gradedAt: null };
       commit();
     },
