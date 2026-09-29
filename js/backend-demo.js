@@ -2,15 +2,17 @@
 //  Backend de demostración: misma interfaz que Firebase, datos en el navegador.
 //  Se usa automáticamente mientras firebase-config.js no tenga credenciales.
 // =====================================================================
-import { TEACHER_EMAIL } from './firebase-config.js';
+import { TEACHER_EMAIL, TEACHER_NAME } from './firebase-config.js';
 import { codeKey, docKey, uid as newId } from './util.js';
 
-const KEY = 'aulanexus-demo-v3';
+const KEY = 'aulanexus-demo-v4';
 const SESSION = 'aulanexus-demo-session';
 export const DEMO_ACCOUNTS = {
-  teacher: { email: TEACHER_EMAIL, password: 'Docente#2026' },
+  admin: { email: TEACHER_EMAIL, password: 'Docente#2026' },
+  teacher: { email: 'carlos.mejia@ucaldas.edu.co', password: 'Docente#2026' },
   student: { email: 'valentina.rios@ucaldas.edu.co', password: 'Estudiante#2026' }
 };
+const ADMIN_UID = 'teacher-uid';
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -102,30 +104,35 @@ public class DemoObserver {
 function seed() {
   const now = Date.now();
   const H = 3.6e6, D = 24 * H;
-  const db = { accounts: {}, users: {}, classes: {}, posts: {}, submissions: {}, notifications: {}, uniques: {} };
+  const db = { accounts: {}, users: {}, classes: {}, posts: {}, submissions: {}, notifications: {}, uniques: {},
+    settings: { allowSelfRegistration: true, schemaVersion: 2 } };
 
-  db.accounts[TEACHER_EMAIL] = { uid: 'teacher-uid', password: DEMO_ACCOUNTS.teacher.password };
+  db.accounts[TEACHER_EMAIL] = { uid: ADMIN_UID, password: DEMO_ACCOUNTS.admin.password };
+  // Segundo docente (creado por el administrador)
+  db.accounts[DEMO_ACCOUNTS.teacher.email] = { uid: 't-carlos', password: DEMO_ACCOUNTS.teacher.password };
+  db.users['t-carlos'] = { id: 't-carlos', uid: 't-carlos', role: 'teacher', active: true, fullName: 'Carlos Andrés Mejía Ríos', docType: 'CC', docNumber: '75081234', email: DEMO_ACCOUNTS.teacher.email, mustChangePassword: false, createdBy: ADMIN_UID, createdAt: now - 100 * D, updatedAt: now - 100 * D };
 
   const classes = [
     { id: 'c-ihm', name: 'Interacción Humano-Máquina', code: '232G8F', schedule: 'Lunes · 7:00 – 10:00', room: 'Bloque D · Sala 3', color: 'violet', description: 'Principios de usabilidad, diseño centrado en el usuario, prototipado y evaluación heurística.' },
     { id: 'c-req', name: 'Ingeniería de Requisitos', code: 'IRQ-01', schedule: 'Martes · 14:00 – 17:00', room: 'Bloque C · 204', color: 'cyan', description: 'Elicitación, especificación, validación y gestión de requisitos de software.' },
     { id: 'c-saw', name: 'Seguridad en Aplicaciones Web', code: 'SAW-02', schedule: 'Jueves · 18:00 – 21:00', room: 'Laboratorio de Redes', color: 'pink', description: 'OWASP Top 10, autenticación segura, criptografía aplicada y pruebas de penetración éticas.' },
-    { id: 'c-fti', name: 'Fundamentos de TI', code: 'FTI-2026-1', schedule: 'Viernes · 8:00 – 11:00', room: 'Bloque A · 101', color: 'emerald', description: 'Curso del periodo 2026-1.', archived: true, archivedAt: now - 60 * D }
+    { id: 'c-fti', name: 'Fundamentos de TI', code: 'FTI-2026-1', schedule: 'Viernes · 8:00 – 11:00', room: 'Bloque A · 101', color: 'emerald', description: 'Curso del periodo 2026-1.', archived: true, archivedAt: now - 60 * D },
+    { id: 'c-bd', name: 'Bases de Datos', code: 'BD-01', schedule: 'Miércoles · 10:00 – 12:00', room: 'Bloque B · 305', color: 'amber', description: 'Modelo entidad-relación, normalización y SQL.', ownerId: 't-carlos', ownerName: 'Carlos Andrés Mejía Ríos' }
   ];
-  classes.forEach((c, i) => { db.classes[c.id] = { archived: false, createdAt: now - (90 - i) * D, ...c }; });
+  classes.forEach((c, i) => { db.classes[c.id] = { archived: false, ownerId: ADMIN_UID, ownerName: TEACHER_NAME, createdAt: now - (90 - i) * D, ...c }; });
 
   const people = [
     ['s-valentina', 'Valentina Ríos Gómez', '1702310045', 'CC', '1053845120', 'valentina.rios@ucaldas.edu.co', ['c-ihm', 'c-saw', 'c-fti']],
-    ['s-santiago', 'Santiago Marín López', '1702310078', 'CC', '1053811234', 'santiago.marin@ucaldas.edu.co', ['c-ihm', 'c-req']],
+    ['s-santiago', 'Santiago Marín López', '1702310078', 'CC', '1053811234', 'santiago.marin@ucaldas.edu.co', ['c-ihm', 'c-req', 'c-bd']],
     ['s-mariana', 'Mariana Castaño Arias', '1702310112', 'TI', '1002345678', 'mariana.castano@ucaldas.edu.co', ['c-ihm', 'c-saw']],
     ['s-juan', 'Juan Esteban Ocampo Ruiz', '1702310134', 'CC', '1053799001', 'juan.ocampo@ucaldas.edu.co', ['c-req', 'c-saw']],
     ['s-daniela', 'Daniela Giraldo Henao', '1702310156', 'CC', '1053866432', 'daniela.giraldo@ucaldas.edu.co', ['c-ihm', 'c-req', 'c-fti']],
     ['s-sebastian', 'Sebastián Arango Duque', '1702310167', 'CE', '5123987', 'sebastian.arango@ucaldas.edu.co', ['c-saw']],
     ['s-laura', 'Laura Sofía Valencia Mejía', '1702310189', 'CC', '1053870011', 'laura.valencia@ucaldas.edu.co', ['c-ihm', 'c-req']],
-    ['s-camilo', 'Camilo Andrés Zuluaga Toro', '1702310201', 'CC', '1053890345', 'camilo.zuluaga@ucaldas.edu.co', ['c-ihm', 'c-saw', 'c-req']]
+    ['s-camilo', 'Camilo Andrés Zuluaga Toro', '1702310201', 'CC', '1053890345', 'camilo.zuluaga@ucaldas.edu.co', ['c-ihm', 'c-saw', 'c-req', 'c-bd']]
   ];
   people.forEach(([id, fullName, studentCode, docType, docNumber, email, classIds], i) => {
-    db.users[id] = { id, uid: id, role: 'student', fullName, studentCode, docType, docNumber, email, classIds, createdAt: now - (40 - i) * D, updatedAt: now - (40 - i) * D };
+    db.users[id] = { id, uid: id, role: 'student', fullName, studentCode, docType, docNumber, email, classIds, mustChangePassword: false, createdAt: now - (40 - i) * D, updatedAt: now - (40 - i) * D };
     db.accounts[email] = { uid: id, password: DEMO_ACCOUNTS.student.password };
     db.uniques[codeKey(studentCode)] = { uid: id };
     db.uniques[docKey(docType, docNumber)] = { uid: id };
@@ -143,7 +150,8 @@ function seed() {
     { id: 'p9', classId: 'c-req', type: 'tarea', title: 'Entrega 1 · Historias de usuario', body: 'Redacten 10 historias de usuario con criterios de aceptación en formato Gherkin.', links: [], files: [], dueAt: now + 2 * D, createdAt: now - 4 * D },
     { id: 'p10', classId: 'c-fti', type: 'tarea', title: 'Proyecto final · Diagnóstico de equipos', body: 'Informe final del curso.', links: [], files: [], dueAt: now - 70 * D, createdAt: now - 80 * D }
   ];
-  posts.forEach((p) => { db.posts[p.id] = p; });
+  posts.push({ id: 'p11', classId: 'c-bd', type: 'anuncio', title: 'Bienvenidos a Bases de Datos', body: 'Instalen PostgreSQL 16 antes de la primera sesión.', links: [], files: [], createdAt: now - 3 * D });
+  posts.forEach((p) => { db.posts[p.id] = { ...p, ownerId: db.classes[p.classId].ownerId }; });
 
   const subs = [
     ['p3', 's-valentina', 'Justifico los mensajes de error con la heurística 9: ayudar a reconocer, diagnosticar y recuperarse de errores.', [{ name: 'GestorTareas.java', content: JAVA_SAMPLE }], now - 4 * D, 4.6, 'Excelente manejo de validaciones y mensajes claros. Mejora la documentación de métodos.'],
@@ -160,7 +168,7 @@ function seed() {
     const p = db.posts[postId], u = db.users[sid];
     const id = `${postId}_${sid}`;
     db.submissions[id] = {
-      id, postId, classId: p.classId, studentId: sid, studentName: u.fullName, studentCode: u.studentCode,
+      id, postId, classId: p.classId, ownerId: p.ownerId, studentId: sid, studentName: u.fullName, studentCode: u.studentCode,
       text, files: files.map((f) => ({ ...f, size: f.content.length })), late: p.dueAt ? at > p.dueAt : false,
       submittedAt: at, grade, feedback, status: grade == null ? 'entregado' : 'calificado', gradedAt: grade == null ? null : at + 0.8 * D
     };
@@ -172,8 +180,8 @@ function seed() {
   notif('s-valentina', 'grade', 'Nueva calificación · IHM', 'Taller 1 · Gestor de tareas con validación: 4.6', '#/calificaciones', now - 2 * D, true);
   notif('s-valentina', 'post', 'Nueva tarea en Interacción Humano-Máquina', 'Taller 2 · Evaluación heurística', '#/clase/c-ihm', now - 2 * D);
   notif('s-valentina', 'post', 'Nueva tarea en Seguridad en Aplicaciones Web', 'Reto 2 · Análisis de inyección SQL', '#/clase/c-saw', now - 1 * D);
-  notif('teacher', 'submission', 'Nueva entrega · Camilo Andrés Zuluaga Toro', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 0.5 * D);
-  notif('teacher', 'submission', 'Nueva entrega · Valentina Ríos Gómez', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 1.5 * D, true);
+  notif(ADMIN_UID, 'submission', 'Nueva entrega · Camilo Andrés Zuluaga Toro', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 0.5 * D);
+  notif(ADMIN_UID, 'submission', 'Nueva entrega · Valentina Ríos Gómez', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 1.5 * D, true);
   return db;
 }
 
@@ -233,7 +241,8 @@ export function createBackend() {
       db.accounts[email] = { uid, password: d.password };
       db.uniques[codeKey(d.studentCode)] = { uid };
       db.uniques[docKey(d.docType, d.docNumber)] = { uid };
-      db.users[uid] = { id: uid, uid, role: 'student', fullName: d.fullName, studentCode: d.studentCode, docType: d.docType, docNumber: d.docNumber, email, classIds: d.classIds, createdAt: Date.now(), updatedAt: Date.now() };
+      if (db.settings.allowSelfRegistration === false) throw err('app/registration-closed');
+      db.users[uid] = { id: uid, uid, role: 'student', fullName: d.fullName, studentCode: d.studentCode, docType: d.docType, docNumber: d.docNumber, email, classIds: d.classIds, mustChangePassword: false, createdAt: Date.now(), updatedAt: Date.now() };
       commit();
       setSession({ uid, email });
     },
@@ -243,6 +252,34 @@ export function createBackend() {
       if (!acc || acc.password !== currentPass) throw err('auth/wrong-password');
       acc.password = next; commit();
     },
+    async completePasswordChange(currentPass, next) {
+      await this.changePassword(currentPass, next);
+      const u = db.users[current.uid];
+      if (u) { u.mustChangePassword = false; u.passwordChangedAt = Date.now(); }
+      commit();
+    },
+    // Cuentas creadas por el docente / administrador (no cambia la sesión actual)
+    async provisionAccount({ password, profile }) {
+      await wait(350); need();
+      const email = profile.email.trim().toLowerCase();
+      if (email === TEACHER_EMAIL.toLowerCase()) throw err('app/teacher-email');
+      if (db.accounts[email]) throw err('auth/email-already-in-use');
+      if (profile.role === 'student' && (db.uniques[codeKey(profile.studentCode)] || db.uniques[docKey(profile.docType, profile.docNumber)])) throw err('app/duplicate');
+      const uid = (profile.role === 'teacher' ? 't-' : 's-') + newId();
+      db.accounts[email] = { uid, password };
+      if (profile.role === 'student') {
+        db.uniques[codeKey(profile.studentCode)] = { uid };
+        db.uniques[docKey(profile.docType, profile.docNumber)] = { uid };
+      }
+      db.users[uid] = { ...clone(profile), id: uid, uid, email, mustChangePassword: true, createdBy: current.uid, createdAt: Date.now(), updatedAt: Date.now() };
+      commit();
+      return uid;
+    },
+    async updateUser(id, data) { await wait(); if (!db.users[id]) throw err('permission-denied'); Object.assign(db.users[id], clone(data), { updatedAt: Date.now() }); commit(); },
+    watchTeachers: (cb) => watch(() => values('users').filter((u) => u.role === 'teacher'), cb),
+    watchSettings: (cb) => watch(() => ({ allowSelfRegistration: true, ...clone(db.settings || {}) }), cb),
+    async saveSettings(data) { await wait(); db.settings = { ...(db.settings || {}), ...clone(data) }; commit(); },
+    async migrateLegacy() { return 0; },
     async changeEmail(currentPass, newEmail) {
       await wait(); need();
       const acc = db.accounts[current.email];
@@ -269,7 +306,9 @@ export function createBackend() {
       Object.assign(db.users[id], data, { updatedAt: Date.now() });
       commit();
     },
-    async joinClasses(id, ids) { await wait(); const u = db.users[id]; u.classIds = [...new Set([...(u.classIds || []), ...ids])]; commit(); },
+    async joinClasses(id, ids) {
+      await wait(); const u = db.users[id];
+      if (current?.uid === id && db.settings.allowSelfRegistration === false) throw err('permission-denied'); u.classIds = [...new Set([...(u.classIds || []), ...ids])]; commit(); },
     async removeFromClass(id, cid) { await wait(); const u = db.users[id]; u.classIds = (u.classIds || []).filter((x) => x !== cid); commit(); },
     watchStudents: (cb) => watch(() => values('users').filter((u) => u.role === 'student'), cb),
 
@@ -280,11 +319,12 @@ export function createBackend() {
 
     watchPostsByClass: (cid, cb) => watch(() => values('posts').filter((p) => p.classId === cid), cb),
     watchAllPosts: (cb) => watch(() => values('posts'), cb),
+    watchPostsByOwner: (uid, cb) => watch(() => values('posts').filter((p) => p.ownerId === uid), cb),
     async createPost(p) { await wait(); const id = 'p-' + newId(); db.posts[id] = { id, ...p, createdAt: Date.now() }; commit(); return id; },
     async deletePost(id) { await wait(); delete db.posts[id]; commit(); },
     async updatePost(id, data) { await wait(); if (!db.posts[id]) throw err('permission-denied'); Object.assign(db.posts[id], clone(data), { updatedAt: Date.now() }); commit(); },
 
-    watchSubmissionsBy: (field, value, cb) => watch(() => values('submissions').filter((s) => s[field] === value), cb),
+    watchSubmissionsBy: (field, value, cb, ownerId) => watch(() => values('submissions').filter((s) => s[field] === value && (!ownerId || s.ownerId === ownerId)), cb),
     async submit(s) {
       await wait(600);
       const id = `${s.postId}_${s.studentId}`;

@@ -3,7 +3,7 @@ import { icon } from './icons.js';
 import { hueOf, toast, modal, withLoading } from './ui.js';
 import { esc, initials, fmtDate, timeAgo, timeLeft, fmtGrade, gradeTone, linkify, langOf, fmtBytes, extOf, download, errMsg, docLabel, youtubeId } from './util.js';
 import { LIMITS } from './firebase-config.js';
-import { S, ctx, classById } from './state.js';
+import { S, ctx, classById, ownerOf } from './state.js';
 
 export const avatar = (name, size = '', key) =>
   `<div class="avatar ${size}" style="--h:${hueOf(key || name || '')}" aria-hidden="true">${esc(initials(name))}</div>`;
@@ -38,7 +38,7 @@ export function taskStatus(post, sub) {
   return { key: 'pending', label: 'Pendiente', cls: 'b-accent', icon: 'clock' };
 }
 
-export function classCard(c, { students = [], posts = 0, manage = false } = {}) {
+export function classCard(c, { students = [], posts = 0, manage = false, showOwner = false } = {}) {
   const shown = students.slice(0, 4);
   return `
   <article class="class-card" style="--c:${colorVar(c.color)}" data-href="#/clase/${c.id}" tabindex="0">
@@ -52,6 +52,7 @@ export function classCard(c, { students = [], posts = 0, manage = false } = {}) 
       ${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}
       ${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}
       <span>${icon('layers')}${posts} ${posts === 1 ? 'publicación' : 'publicaciones'}</span>
+      ${showOwner && c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}
     </div>
     ${manage ? `<div class="cc-actions">
       <button class="btn btn-sm" data-act="edit-class" data-id="${c.id}">${icon('edit')}Editar</button>
@@ -302,7 +303,7 @@ export function openReview({ post, student, sub }) {
         const studentId = student?.uid || sub.studentId;
         try {
           await ctx.B.grade({
-            postId: post.id, classId: post.classId, studentId, studentName: name, studentCode: code,
+            postId: post.id, classId: post.classId, ownerId: ownerOf(post.classId), studentId, studentName: name, studentCode: code,
             grade, feedback: el.querySelector('#rv-fb').value.trim()
           });
           await ctx.B.addNotifications([{ userId: studentId, type: 'grade', title: `Nueva calificación · ${c?.name || 'Clase'}`, message: `${post.title}: ${grade.toFixed(1)}`, link: '#/calificaciones', classId: post.classId }]);
@@ -317,3 +318,24 @@ export function openReview({ post, student, sub }) {
 export const docText = (s) => `${esc(s.docType)} ${esc(s.docNumber)}`;
 export const docTitle = (s) => `${docLabel(s.docType)} ${s.docNumber}`;
 export { S };
+
+// ---------- Datos de acceso de una cuenta recién creada ----------
+export function showCredentials({ name, email, password, role = 'estudiante' }) {
+  const text = `AulaNexus · Datos de acceso\nNombre: ${name}\nUsuario (correo): ${email}\nContraseña inicial: ${password}\nIngreso: ${location.origin}${location.pathname}\nEn el primer ingreso el sistema le pedirá cambiar la contraseña.`;
+  modal({
+    title: 'Cuenta creada', subtitle: `${esc(name)} · ${role}`, iconName: 'userCheck',
+    body: `
+      <div class="callout ok">${icon('check')}<div>La cuenta quedó activa. Comparta estos datos con ${role === 'docente' ? 'el docente' : 'el estudiante'} por un canal seguro.</div></div>
+      <div class="cred-box">
+        <div><span>Usuario</span><b>${esc(email)}</b></div>
+        <div><span>Contraseña inicial</span><b>${esc(password)}</b></div>
+      </div>
+      <p class="muted" style="font-size:12.5px">Regla: primer nombre (inicial en mayúscula) + número de documento + <b>*</b>. En el primer ingreso deberá crear una contraseña nueva.</p>`,
+    footer: `<button class="btn" data-copy>${icon('copy')}Copiar datos</button><button class="btn btn-primary" data-close>Listo</button>`,
+    onMount(el) {
+      el.querySelector('[data-copy]').addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(text); toast('Datos copiados', 'success'); } catch { toast('No fue posible copiar', 'error'); }
+      });
+    }
+  });
+}

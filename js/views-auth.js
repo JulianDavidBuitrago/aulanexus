@@ -1,5 +1,5 @@
 // Vistas públicas: inicio de sesión y registro de estudiantes (asistente en 3 pasos)
-import { ctx } from './state.js';
+import { S, ctx } from './state.js';
 import { icon, LOGO } from './icons.js';
 import * as ui from './ui.js';
 import { esc, errMsg, isEmail, DOC_TYPES, CLASS_COLORS } from './util.js';
@@ -97,16 +97,25 @@ export function renderLogin(root) {
         <div class="demo-box">
           <p>Firebase aún no está configurado. Explore la plataforma con datos de ejemplo guardados en este navegador:</p>
           <div class="row">
+            <button class="btn btn-sm" data-demo="admin">${icon('sliders')}Administrador</button>
             <button class="btn btn-sm" data-demo="teacher">${icon('grad')}Docente</button>
             <button class="btn btn-sm" data-demo="student">${icon('user')}Estudiante</button>
           </div>
         </div>` : ''}
-        <p class="auth-alt">¿Es estudiante y aún no tiene cuenta? <a href="#/registro"><b>Crear cuenta</b></a></p>
+        <p class="auth-alt" id="reg-alt"></p>
       </div>
     </section>
   </div>`;
   const stopTerm = typeTerminal();
   const form = root.querySelector('#login-form');
+  // El enlace de registro depende del ajuste del administrador
+  const regAlt = root.querySelector('#reg-alt');
+  const paintReg = () => {
+    regAlt.innerHTML = S.settings.allowSelfRegistration !== false
+      ? '¿Es estudiante y aún no tiene cuenta? <a href="#/registro"><b>Crear cuenta</b></a>'
+      : `${icon('info')} Las cuentas de estudiantes las crea su docente. Revise su correo institucional o consulte a su docente.`;
+  };
+  paintReg();
   const email = root.querySelector('#l-email');
   bindPassword(root, 'l-pass');
 
@@ -152,7 +161,7 @@ export function renderLogin(root) {
     root.querySelector('#l-pass').value = acc.password;
     form.requestSubmit();
   }));
-  return { destroy: stopTerm };
+  return { destroy: stopTerm, update: paintReg };
 }
 
 // ---------------------------------------------------------------------
@@ -166,6 +175,15 @@ export function renderRegister(root) {
     <section class="auth-side">
       <div class="auth-top">${ui.themeButton()}</div>
       <div class="auth-card wide card glow-border">
+        <div id="reg-closed" hidden>
+          <div class="empty" style="padding:10px 0 0">
+            <div class="em-ic">${icon('lock')}</div>
+            <b>El registro libre está deshabilitado</b>
+            <p>En este momento las cuentas de estudiantes las crea directamente su docente. Recibirá su correo de acceso; la contraseña inicial es su <b>primer nombre</b> (con la primera letra en mayúscula) seguido de su <b>número de documento</b> y un <b>*</b>. Ejemplo: <span class="mono">Valentina1053845120*</span></p>
+            <a class="btn btn-primary" href="#/login">${icon('arrowLeft')}Ir a iniciar sesión</a>
+          </div>
+        </div>
+        <div id="reg-open">
         <span class="badge b-accent dot">Registro de estudiantes</span>
         <h2 style="margin-top:14px">Crear cuenta</h2>
         <p class="sub">Complete sus datos, proteja su cuenta y elija las clases en las que está matriculado.</p>
@@ -224,11 +242,18 @@ export function renderRegister(root) {
           </div>
         </form>
         <p class="auth-alt">¿Ya tiene cuenta? <a href="#/login"><b>Iniciar sesión</b></a></p>
+        </div>
       </div>
     </section>
   </div>`;
   const stopTerm = typeTerminal();
   const $ = (s) => root.querySelector(s);
+  const paintClosed = () => {
+    const closed = S.settings.allowSelfRegistration === false;
+    $('#reg-closed').hidden = !closed;
+    $('#reg-open').hidden = closed;
+  };
+  paintClosed();
   const form = $('#reg-form');
   bindPassword(root, 'r-pass', { confirmId: 'r-pass2', context: () => [$('#r-name').value, $('#r-email').value, $('#r-code').value, $('#r-docnum').value] });
   bindPassword(root, 'r-pass2');
@@ -241,7 +266,7 @@ export function renderRegister(root) {
         <label class="pick" style="--c:${colorVar(c.color || CLASS_COLORS[0])}">
           <input type="checkbox" value="${c.id}">
           <span class="pick-dot">${icon('book')}</span>
-          <span class="pick-body"><b>${esc(c.name)}</b><span>${esc([c.code, c.schedule].filter(Boolean).join(' · '))}</span></span>
+          <span class="pick-body"><b>${esc(c.name)}</b><span>${esc([c.code, c.ownerName, c.schedule].filter(Boolean).join(' · '))}</span></span>
           <span class="pick-check">${icon('check')}</span>
         </label>`).join('')
         : `<div class="callout warn">${icon('info')}<div>Aún no hay clases disponibles. El docente debe crearlas antes de que usted se registre.</div></div>`;
@@ -321,5 +346,66 @@ export function renderRegister(root) {
       }
     });
   });
-  return { destroy: stopTerm };
+  return { destroy: stopTerm, update: paintClosed };
+}
+
+// ---------------------------------------------------------------------
+// Pantalla simple con mensaje (cuenta deshabilitada, sin perfil, etc.)
+export function renderNotice(root, { icon: ic = 'info', title, text }) {
+  root.innerHTML = `
+  <div class="gate">
+    <div class="auth-top">${ui.themeButton()}</div>
+    <div class="auth-card card glow-border gate-card">
+      <a class="brand" href="#/" style="padding:0 0 18px">${LOGO}<div><b>${APP.name}</b><small>${esc(APP.institution)}</small></div></a>
+      <div class="empty" style="padding:6px 0 0"><div class="em-ic">${icon(ic)}</div><b>${esc(title)}</b><p>${esc(text)}</p>
+        <button class="btn" id="gate-out">${icon('logout')}Cerrar sesión</button></div>
+    </div>
+  </div>`;
+  root.querySelector('#gate-out').addEventListener('click', () => ctx.B.logout());
+  return {};
+}
+
+// ---------------------------------------------------------------------
+// Primer ingreso: el usuario debe reemplazar la contraseña asignada por el docente
+export function renderForceChange(root) {
+  document.title = `Actualice su contraseña · ${APP.name}`;
+  const p = S.profile || {};
+  root.innerHTML = `
+  <div class="gate">
+    <div class="auth-top">${ui.themeButton()}</div>
+    <div class="auth-card card glow-border gate-card">
+      <a class="brand" href="#/" style="padding:0 0 18px">${LOGO}<div><b>${APP.name}</b><small>${esc(APP.institution)}</small></div></a>
+      <span class="badge b-warning dot">Primer ingreso</span>
+      <h2 style="margin-top:14px">Cree su nueva contraseña</h2>
+      <p class="sub">Hola, <b>${esc((p.fullName || '').split(' ')[0])}</b>. Por seguridad, debe reemplazar la contraseña inicial que le asignó ${p.role === 'teacher' ? 'el administrador' : 'su docente'} antes de continuar.</p>
+      <form class="auth-form" id="fc-form" novalidate>
+        ${passwordField({ id: 'fc-cur', label: 'Contraseña inicial (la que usó para ingresar)', autocomplete: 'current-password' })}
+        ${passwordField({ id: 'fc-new', label: 'Nueva contraseña', meter: true, generator: true })}
+        ${passwordField({ id: 'fc-new2', label: 'Confirmar nueva contraseña' })}
+        <button class="btn btn-primary btn-lg btn-block" type="submit" data-loading="Guardando…">${icon('shield')}Guardar y continuar</button>
+      </form>
+      <p class="auth-alt"><button class="link-btn" id="fc-out">Cerrar sesión</button></p>
+    </div>
+  </div>`;
+  const $ = (q) => root.querySelector(q);
+  const ctxWords = () => [p.fullName, p.email, p.studentCode, p.docNumber];
+  bindPassword(root, 'fc-cur'); bindPassword(root, 'fc-new', { confirmId: 'fc-new2', context: ctxWords }); bindPassword(root, 'fc-new2');
+  $('#fc-out').addEventListener('click', () => ctx.B.logout());
+  $('#fc-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = $('#fc-form'); ui.clearErrors(f);
+    const cur = $('#fc-cur'), nw = $('#fc-new'), nw2 = $('#fc-new2');
+    if (!cur.value) return ui.fieldError(cur, 'Ingrese la contraseña con la que inició sesión.');
+    if (!analyze(nw.value, ctxWords()).valid) return ui.fieldError(nw, 'La nueva contraseña no cumple los requisitos de seguridad.');
+    if (nw.value === cur.value) return ui.fieldError(nw, 'La nueva contraseña debe ser diferente a la inicial.');
+    if (nw.value !== nw2.value) return ui.fieldError(nw2, 'Las contraseñas no coinciden.');
+    ui.withLoading(f.querySelector('[type=submit]'), async () => {
+      try {
+        await ctx.B.completePasswordChange(cur.value, nw.value);
+        ui.toast('Contraseña actualizada', 'success', 'Bienvenido(a). Ya puede usar la plataforma.');
+      } catch (er) { ui.fieldError(cur, errMsg(er)); }
+    });
+  });
+  setTimeout(() => $('#fc-cur')?.focus(), 80);
+  return {};
 }

@@ -115,12 +115,15 @@ export function errMsg(e) {
     'auth/invalid-email': 'El correo electrónico no es válido.',
     'auth/email-already-in-use': 'Ya existe una cuenta registrada con ese correo.',
     'auth/weak-password': 'La contraseña es demasiado débil.',
-    'auth/too-many-requests': 'Demasiados intentos. Espere unos minutos e intente de nuevo.',
+    'auth/too-many-requests': 'Firebase limitó temporalmente las solicitudes desde esta red. Espere unos minutos (o una hora si creó muchas cuentas) e intente de nuevo.',
     'auth/network-request-failed': 'Sin conexión. Verifique su red e intente de nuevo.',
     'auth/requires-recent-login': 'Por seguridad, cierre sesión e ingrese nuevamente antes de este cambio.',
     'auth/operation-not-allowed': 'El método de acceso por correo no está habilitado en Firebase.',
+    'auth/admin-restricted-operation': 'La creación de cuentas está deshabilitada en Firebase (Authentication → Configuración → Acciones del usuario).',
     'app/duplicate': 'El código de estudiante o el documento ya se encuentran registrados.',
-    'app/teacher-email': 'Este correo corresponde a la cuenta docente y no puede registrarse como estudiante.',
+    'app/teacher-email': 'Este correo corresponde a la cuenta del administrador.',
+    'app/registration-closed-or-duplicate': 'El registro libre está deshabilitado, o el código / documento ya está registrado.',
+    'app/registration-closed': 'El registro libre de estudiantes está deshabilitado. Su docente creará su cuenta.',
     'permission-denied': 'No tiene permisos para realizar esta acción.',
     'unavailable': 'El servicio no está disponible temporalmente. Intente de nuevo.'
   };
@@ -139,4 +142,51 @@ export function extractUrl(line = '') {
   const t = String(line).trim();
   const m = t.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
   return m ? m[1] : t;
+}
+
+// ---------- Cuentas creadas por el docente ----------
+// Contraseña inicial: primer nombre con la primera letra en mayúscula + número de documento + "*"
+// Ej.: "valentina ríos gómez", 1053845120  →  "Valentina1053845120*"
+export function initialPassword(fullName = '', docNumber = '') {
+  const first = String(fullName).trim().split(/\s+/)[0] || '';
+  const lower = first.toLocaleLowerCase('es-CO');
+  const cap = lower.charAt(0).toLocaleUpperCase('es-CO') + lower.slice(1);
+  return `${cap}${String(docNumber).replace(/[\s.\-]/g, '')}*`;
+}
+
+// Normaliza el tipo de documento escrito de distintas formas en Excel
+export function normDocType(v = '') {
+  const t = norm(v).replace(/[^a-z ]/g, '').trim();
+  if (!t) return '';
+  if (['cc', 'cedula', 'cedula de ciudadania', 'cedula ciudadania'].includes(t)) return 'CC';
+  if (['ti', 'tarjeta de identidad', 'tarjeta identidad'].includes(t)) return 'TI';
+  if (['ce', 'cedula de extranjeria', 'cedula extranjeria'].includes(t)) return 'CE';
+  if (['pa', 'pasaporte', 'pas'].includes(t)) return 'PA';
+  if (['ppt', 'pep', 'permiso por proteccion temporal', 'permiso de proteccion temporal'].includes(t)) return 'PPT';
+  return null; // no reconocido
+}
+
+// Validaciones compartidas por el registro, el formulario del docente y la carga masiva
+export function validatePerson({ fullName = '', studentCode, docType, docNumber = '', email = '' }, { requireCode = true } = {}) {
+  const errors = [];
+  const name = String(fullName).trim().replace(/\s+/g, ' ');
+  if (name.split(' ').length < 2 || name.length < 5) errors.push('Nombre completo incompleto');
+  else if (!/^[A-Za-zÀ-ÿÑñ' .-]+$/.test(name)) errors.push('El nombre tiene caracteres no válidos');
+  if (requireCode && !/^[A-Za-z0-9-]{4,20}$/.test(String(studentCode || '').trim())) errors.push('Código de estudiante inválido');
+  if (!['CC', 'TI', 'CE', 'PA', 'PPT'].includes(docType)) errors.push('Tipo de documento no reconocido');
+  const dn = String(docNumber).trim();
+  const pattern = ['PA', 'PPT', 'CE'].includes(docType) ? /^[A-Za-z0-9]{5,20}$/ : /^\d{5,15}$/;
+  if (!pattern.test(dn)) errors.push('Número de documento inválido');
+  if (!isEmail(email)) errors.push('Correo inválido');
+  return errors;
+}
+
+// Nombres escritos todo en minúscula o todo en MAYÚSCULA → "Nombre Propio" (respeta los ya bien escritos)
+export function formatName(n = '') {
+  const clean = String(n).trim().replace(/\s+/g, ' ');
+  if (!clean || (clean !== clean.toLocaleLowerCase('es-CO') && clean !== clean.toLocaleUpperCase('es-CO'))) return clean;
+  const small = ['de', 'del', 'la', 'las', 'los', 'y', 'e'];
+  return clean.toLocaleLowerCase('es-CO').split(' ')
+    .map((w, i) => (i > 0 && small.includes(w) ? w : w.charAt(0).toLocaleUpperCase('es-CO') + w.slice(1)))
+    .join(' ');
 }

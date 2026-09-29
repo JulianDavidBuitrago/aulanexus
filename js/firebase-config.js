@@ -1,7 +1,10 @@
-//############################################################################
-
 // =====================================================================
-
+//  CONFIGURACIÓN DE FIREBASE
+//  Reemplace estos valores por los de su proyecto:
+//  Consola de Firebase → Configuración del proyecto → Tus apps → Web (</>)
+//  Mientras apiKey empiece por "TU_", la plataforma funciona en MODO DEMOSTRACIÓN
+//  (datos de ejemplo guardados solo en el navegador).
+// =====================================================================
 export const firebaseConfig = {
   apiKey: "AIzaSyCm3jbGOIH0uaLkuA_-Wqwrmbn30T79IsM",
   authDomain: "aulanexus-ucaldas.firebaseapp.com",
@@ -25,7 +28,7 @@ export const APP = {
 export const LIMITS = {
   studentExt: [".java", ".py"],
   teacherExt: [".java", ".py", ".txt", ".md", ".sql", ".js", ".ts", ".html", ".css", ".json", ".c", ".cpp", ".cs", ".xml", ".csv"],
-  maxFileBytes: 200 * 1024,
+  maxFileBytes: 200 * 1024,   // 200 KB por archivo
   maxFiles: 5,
   maxTextChars: 20000
 };

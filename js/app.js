@@ -1,14 +1,16 @@
 // Núcleo de la aplicación: sesión, suscripciones en tiempo real, estructura y enrutador
-import { S, ctx, setUpdater, emit } from './state.js';
+import { S, ctx, setUpdater, emit, teacherName } from './state.js';
 import { TEACHER_EMAIL, TEACHER_NAME, APP } from './firebase-config.js';
 import * as ui from './ui.js';
 import { icon, LOGO } from './icons.js';
 import { esc, timeAgo, errMsg } from './util.js';
 import { avatar } from './components.js';
 import { startBackground } from './bg.js';
-import { renderLogin, renderRegister } from './views-auth.js';
+import { renderLogin, renderRegister, renderForceChange, renderNotice } from './views-auth.js';
 import * as Teacher from './views-teacher.js';
 import * as Student from './views-student.js';
+import * as Admin from './views-admin.js';
+import * as Enroll from './views-enroll.js';
 
 let current = null;          // vista montada { update, destroy }
 let subs = [];               // suscripciones globales
@@ -17,16 +19,21 @@ let postsByClass = new Map();
 let shellMounted = false;
 let seenNotifs = null;
 let waitingProfile = false;
+let lastGate = '';
+// "Compuerta" de acceso: si cambia (perfil cargado, clave cambiada, docente deshabilitado) se vuelve a enrutar
+const gateKey = () => `${!!S.user}|${S.isAdmin}|${S.ready.profile ? 1 : 0}|${!!S.profile}|${S.profile?.mustChangePassword ? 1 : 0}|${S.profile?.active === false ? 0 : 1}|${S.role}`;
 
 export function start(backend, { demo }) {
   ctx.B = backend; ctx.demo = demo;
   ui.initTheme();
   startBackground();
   setUpdater(() => {
-    if (waitingProfile && S.profile) { waitingProfile = false; route(); return; }
+    if (S.user && gateKey() !== lastGate) { route(); return; }
     try { current?.update?.(); } catch (e) { console.error(e); }
     updateChrome();
   });
+  // Ajuste público: registro libre de estudiantes habilitado o no
+  backend.watchSettings((st) => { S.settings = st; emit(); });
   backend.onAuth(onAuth);
   window.addEventListener('hashchange', route);
 }
@@ -41,32 +48,59 @@ function destroyCurrent() { try { current?.destroy?.(); } catch { /* */ } curren
 
 function onAuth(user) {
   clearSubs(); destroyCurrent();
-  shellMounted = false; seenNotifs = null; waitingProfile = false;
-  Object.assign(S, { user, role: null, profile: null, classes: [], students: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], ready: {} });
+  // Al cambiar de sesión se cierran las ventanas emergentes abiertas
+  document.getElementById('modals').innerHTML = '';
+  document.body.style.overflow = '';
+  shellMounted = false; seenNotifs = null; waitingProfile = false; lastGate = '';
+  Object.assign(S, { user, role: null, isAdmin: false, profile: null, classes: [], students: [], teachers: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], ready: {} });
   if (!user) { route(); return; }
 
   const B = ctx.B;
-  S.role = user.email === TEACHER_EMAIL.toLowerCase() ? 'teacher' : 'student';
-
+  S.isAdmin = user.email === TEACHER_EMAIL.toLowerCase();
   subs.push(B.watchClasses((l) => { S.classes = l; S.ready.classes = true; emit(); }));
-  subs.push(B.watchNotifications(S.role === 'teacher' ? 'teacher' : user.uid, handleNotifs));
+  subs.push(B.watchNotifications(user.uid, handleNotifs));
 
-  if (S.role === 'teacher') {
-    subs.push(B.watchStudents((l) => { S.students = l; S.ready.students = true; emit(); }));
-    subs.push(B.watchAllPosts((l) => { S.posts = l; S.ready.posts = true; emit(); }));
-    subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { S.pendingSubs = l; S.ready.pending = true; emit(); }));
+  let started = false;
+  const startRole = () => {
+    if (started) return;
+    started = true;
+    if (S.role === 'teacher') startTeacher(user); else startStudent(user);
+  };
+
+  if (S.isAdmin) {
+    S.role = 'teacher';
+    // Perfil opcional del administrador (no es obligatorio en /users)
+    subs.push(B.watchProfile(user.uid, (p) => { S.profile = p; S.ready.profile = true; emit(); }));
+    // Migración única de datos de la versión anterior (un solo docente)
+    Promise.resolve(B.migrateLegacy?.(user.uid, TEACHER_NAME))
+      .then((n) => { if (n) ui.toast('Datos actualizados', 'success', `Se asignaron ${n} registros anteriores a su cuenta.`); })
+      .catch((e) => console.error('[migración]', e))
+      .finally(startRole);
   } else {
     subs.push(B.watchProfile(user.uid, (p) => {
       S.profile = p;
+      S.ready.profile = true;
       if (p) {
-        syncClassPosts(p.classIds || []);
+        S.role = p.role === 'teacher' ? 'teacher' : 'student';
+        startRole();
+        if (S.role === 'student') syncClassPosts(p.classIds || []);
         if (p.email && user.email && p.email !== user.email) B.syncEmail?.(user.uid, user.email);
       }
       emit();
     }));
-    subs.push(B.watchSubmissionsBy('studentId', user.uid, (l) => { S.mySubs = l; S.ready.subs = true; emit(); }));
   }
   route();
+}
+
+function startTeacher(user) {
+  const B = ctx.B;
+  subs.push(B.watchStudents((l) => { S.students = l; S.ready.students = true; emit(); }));
+  subs.push(B.watchPostsByOwner(user.uid, (l) => { S.posts = l; S.ready.posts = true; emit(); }));
+  subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { S.pendingSubs = l; S.ready.pending = true; emit(); }, user.uid));
+  if (S.isAdmin) subs.push(B.watchTeachers((l) => { S.teachers = l; S.ready.teachers = true; emit(); }));
+}
+function startStudent(user) {
+  subs.push(ctx.B.watchSubmissionsBy('studentId', user.uid, (l) => { S.mySubs = l; S.ready.subs = true; emit(); }));
 }
 
 // Suscripción a publicaciones de cada clase inscrita (reglas: una consulta por clase)
@@ -122,20 +156,30 @@ function renderNotifPanel() {
 }
 
 // ---------- Estructura (sidebar, barra superior, navegación inferior) ----------
-const NAV = {
-  teacher: [['', 'home', 'Panel'], ['clases', 'book', 'Clases'], ['estudiantes', 'users', 'Estudiantes'], ['archivadas', 'archive', 'Archivadas'], ['cuenta', 'shield', 'Cuenta']],
-  student: [['', 'home', 'Inicio'], ['clases', 'book', 'Mis clases'], ['calificaciones', 'award', 'Notas'], ['perfil', 'user', 'Mi perfil']]
+const navFor = () => {
+  if (S.role === 'student') return [['', 'home', 'Inicio'], ['clases', 'book', 'Mis clases'], ['calificaciones', 'award', 'Notas'], ['perfil', 'user', 'Mi perfil']];
+  return [
+    ['', 'home', 'Panel'], ['clases', 'book', 'Clases'], ['estudiantes', 'users', 'Estudiantes'],
+    ['inscripciones', 'userPlus', 'Inscripciones'], ['archivadas', 'archive', 'Archivadas'],
+    ...(S.isAdmin ? [['admin', 'sliders', 'Administración']] : []),
+    ['cuenta', 'user', 'Cuenta']
+  ];
 };
 const ACTIVE_ALIAS = { clase: 'clases', tarea: 'clases', estudiante: 'estudiantes' };
+const routesFor = () => (S.role === 'student'
+  ? Student.routes
+  : { ...Teacher.routes, ...Enroll.routes, ...(S.isAdmin ? Admin.routes : {}) });
 
 function mountShell() {
   const root = document.getElementById('root');
-  const nav = NAV[S.role];
+  const nav = navFor();
+  // En celular la barra inferior muestra máximo 5 accesos; el resto queda en "Más" (menú lateral)
+  const bottom = nav.length > 5 ? nav.slice(0, 4) : nav;
   const links = (cls = '') => nav.map(([h, ic, label]) => `<a href="#/${h}" data-nav="${h}" class="${cls}">${icon(ic)}<span>${label}</span><i class="count hidden" data-count="${h}"></i></a>`).join('');
   root.innerHTML = `
   <div class="app">
     <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
-      <a class="brand" href="#/">${LOGO}<div><b>${APP.name}</b><small>${S.role === 'teacher' ? 'Panel docente' : 'Portal estudiante'}</small></div></a>
+      <a class="brand" href="#/">${LOGO}<div><b>${APP.name}</b><small>${S.isAdmin ? 'Administración' : S.role === 'teacher' ? 'Panel docente' : 'Portal estudiante'}</small></div></a>
       <div class="nav-label">Navegación</div>
       <nav class="nav">${links()}</nav>
       <div class="sidebar-foot">
@@ -159,12 +203,13 @@ function mountShell() {
       </header>
       <main id="view" class="view"></main>
     </div>
-    <nav class="bottom-nav" aria-label="Navegación inferior">${nav.map(([h, ic, label]) => `<a href="#/${h}" data-nav="${h}">${icon(ic)}<span>${label}</span></a>`).join('')}</nav>
+    <nav class="bottom-nav" aria-label="Navegación inferior">${bottom.map(([h, ic, label]) => `<a href="#/${h}" data-nav="${h}">${icon(ic)}<span>${label}</span></a>`).join('')}${nav.length > 5 ? `<a href="#" id="more-btn" role="button">${icon('more')}<span>Más</span></a>` : ''}</nav>
   </div>`;
 
   const sidebar = document.getElementById('sidebar'), scrim = document.getElementById('scrim');
   document.getElementById('menu-btn').onclick = () => { sidebar.classList.add('open'); scrim.classList.add('show'); };
   scrim.onclick = closeDrawer;
+  document.getElementById('more-btn')?.addEventListener('click', (e) => { e.preventDefault(); sidebar.classList.add('open'); scrim.classList.add('show'); });
 
   const panel = document.getElementById('notif-panel');
   document.getElementById('bell-btn').onclick = (e) => {
@@ -217,8 +262,8 @@ function updateChrome() {
   if (bc) { bc.textContent = unread > 99 ? '99+' : unread; bc.classList.toggle('hidden', !unread); }
   renderNotifPanel();
 
-  const name = S.role === 'teacher' ? TEACHER_NAME : S.profile?.fullName || '';
-  const sub = S.role === 'teacher' ? S.user.email : S.profile?.studentCode ? `Código ${S.profile.studentCode}` : S.user.email;
+  const name = S.role === 'teacher' ? teacherName() : S.profile?.fullName || '';
+  const sub = S.role === 'teacher' ? (S.isAdmin ? 'Administrador · ' : 'Docente · ') + S.user.email : S.profile?.studentCode ? `Código ${S.profile.studentCode}` : S.user.email;
   const uc = document.getElementById('user-card');
   if (uc) {
     const sig = name + sub;
@@ -260,14 +305,31 @@ function route() {
     return;
   }
   if (name === 'login' || name === 'registro') { location.hash = '#/'; return; }
-  if (S.role === 'student' && !S.profile) {
-    waitingProfile = true;
-    renderBoot('SINCRONIZANDO SU PERFIL…');
-    return;
+  lastGate = gateKey();
+
+  // Usuario sin administrador: espera su perfil en /users
+  if (!S.isAdmin) {
+    if (!S.ready.profile) { renderBoot('SINCRONIZANDO SU PERFIL…'); return; }
+    if (!S.profile) {
+      destroyCurrent(); shellMounted = false;
+      current = renderNotice(document.getElementById('root'), { icon: 'alert', title: 'Cuenta sin perfil', text: 'Su usuario existe, pero no tiene un perfil en la plataforma. Comuníquese con su docente o con el administrador.' }) || {};
+      return;
+    }
+    if (S.profile.role === 'teacher' && S.profile.active === false) {
+      destroyCurrent(); shellMounted = false;
+      current = renderNotice(document.getElementById('root'), { icon: 'lock', title: 'Cuenta deshabilitada', text: 'El administrador deshabilitó temporalmente su acceso como docente. Comuníquese con él para reactivarlo.' }) || {};
+      return;
+    }
+    // Primer ingreso con contraseña asignada: cambio obligatorio
+    if (S.profile.mustChangePassword) {
+      destroyCurrent(); shellMounted = false;
+      current = renderForceChange(document.getElementById('root')) || {};
+      return;
+    }
   }
   if (!shellMounted) mountShell();
 
-  const routes = S.role === 'teacher' ? Teacher.routes : Student.routes;
+  const routes = routesFor();
   const view = routes[name] || routes[''];
   destroyCurrent();
   // Se reemplaza el contenedor por una copia limpia: así se descartan los "escuchadores" de clic

@@ -1,8 +1,8 @@
 // Vistas del docente
-import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notifyClass, byName } from './state.js';
+import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notifyClass, byName, myClasses, isMine, teacherName, myStudents, ownerOf } from './state.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
-import { TEACHER_NAME, LIMITS } from './firebase-config.js';
+import { LIMITS } from './firebase-config.js';
 import { esc, norm, fmtDate, timeAgo, avg, fmtGrade, greeting, errMsg, CLASS_COLORS, download, debounce, docLabel, extractUrl, youtubeId } from './util.js';
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
@@ -21,8 +21,8 @@ export const routes = {
   cuenta: accountView
 };
 
-const activeClasses = () => S.classes.filter((c) => !c.archived).sort((a, b) => a.name.localeCompare(b.name, 'es'));
-const archivedClasses = () => S.classes.filter((c) => c.archived).sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+const activeClasses = () => myClasses().filter((c) => !c.archived).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+const archivedClasses = () => myClasses().filter((c) => c.archived).sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
 const uniqueStudents = (classes) => new Set(S.students.filter((s) => (s.classIds || []).some((id) => classes.some((c) => c.id === id))).map((s) => s.uid)).size;
 
 // Navegación por tarjetas con data-href
@@ -93,7 +93,8 @@ function classForm(c = null) {
         };
         ui.withLoading(e.currentTarget, async () => {
           try {
-            if (c) await ctx.B.updateClass(c.id, data); else await ctx.B.createClass(data);
+            if (c) await ctx.B.updateClass(c.id, data);
+            else await ctx.B.createClass({ ...data, ownerId: S.user.uid, ownerName: teacherName() });
             ui.toast(c ? 'Clase actualizada' : 'Clase creada', 'success', data.name);
             m.close();
           } catch (er) { ui.toast('No se pudo guardar', 'error', errMsg(er)); }
@@ -184,7 +185,7 @@ function dashboard(el) {
       <div class="hero-orb"></div>
       <div>
         <span class="eyebrow">${icon('sparkles')}${greeting()}</span>
-        <h1>${esc(TEACHER_NAME)}</h1>
+        <h1>${esc(teacherName())}</h1>
         <p>Resumen en tiempo real de sus clases, estudiantes y entregas pendientes por calificar.</p>
       </div>
       <div class="hero-actions">
@@ -272,7 +273,7 @@ function classDetail(el, id) {
   let subs = [];
   let composerFiles = [];
   let type = 'anuncio';
-  const unsub = ctx.B.watchSubmissionsBy('classId', id, (l) => { subs = l; update(); });
+  const unsub = ctx.B.watchSubmissionsBy('classId', id, (l) => { subs = l; update(); }, S.user.uid);
 
   el.innerHTML = `
   <div class="stack">
@@ -319,7 +320,10 @@ function classDetail(el, id) {
         <div class="panel">
           <div class="panel-head">
             <div class="count-head"><span class="big" id="st-count">0</span><span class="muted">estudiantes inscritos</span></div>
-            <button class="btn btn-sm" id="st-export">${icon('download')}Exportar lista</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <a class="btn btn-sm btn-primary" href="#/inscripciones/${id}">${icon('userPlus')}Inscribir estudiantes</a>
+              <button class="btn btn-sm" id="st-export">${icon('download')}Exportar lista</button>
+            </div>
           </div>
           <div class="toolbar"><div class="input-wrap">${icon('search')}<input class="input" id="st-q" placeholder="Buscar por nombre, código, documento o correo"></div></div>
           <div id="st-list"></div>
@@ -368,7 +372,7 @@ function classDetail(el, id) {
       dueAt = new Date(d.value).getTime();
     }
     const links = cleanLinks($('#cp-links').value);
-    const post = { classId: id, type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, dueAt };
+    const post = { classId: id, ownerId: ownerOf(id), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, dueAt };
     ui.withLoading(e.currentTarget, async () => {
       try {
         await ctx.B.createPost(post);
@@ -471,6 +475,7 @@ function classDetail(el, id) {
     const c = classById(id);
     if (!S.ready.classes || !$('#cd-hero')) return;
     if (!c) { el.innerHTML = empty('alert', 'Clase no encontrada', 'Es posible que haya sido eliminada.', `<a class="btn" href="#/clases">${icon('arrowLeft')}Volver</a>`); return; }
+    if (!isMine(c)) { el.innerHTML = empty('lock', 'Clase de otro docente', 'Solo el docente dueño de la clase puede gestionarla.', `<a class="btn" href="#/clases">${icon('arrowLeft')}Mis clases</a>`); return; }
     ui.setCrumb(c.name, `CLASES / ${c.code || ''}`);
     const studs = studentsOf(id), posts = postsOf(id), tasks = tasksOf(id);
     const hero = $('#cd-hero');
@@ -538,7 +543,7 @@ function exportGradebook(classId, subs) {
 function taskDetail(el, postId) {
   let subs = [];
   let filter = 'all';
-  const unsub = ctx.B.watchSubmissionsBy('postId', postId, (l) => { subs = l; update(); });
+  const unsub = ctx.B.watchSubmissionsBy('postId', postId, (l) => { subs = l; update(); }, S.user.uid);
   el.innerHTML = `
   <div class="stack">
     <div><a class="back-link" id="td-back" href="#/clases">${icon('arrowLeft')}Volver a la clase</a><div id="td-post"></div></div>
@@ -637,8 +642,11 @@ function studentsView(el) {
   el.innerHTML = `
   <div class="stack">
     <div class="filter-row" style="margin:0">
-      <div><h2 style="font-size:24px">Estudiantes</h2><p class="muted" style="margin-top:4px">Consulte por nombre, código, número de documento o correo.</p></div>
-      <div class="count-head"><span class="big grad-text" id="sv-n">0</span><span class="muted">registrados</span></div>
+      <div><h2 style="font-size:24px">Estudiantes</h2><p class="muted" style="margin-top:4px">${S.isAdmin ? 'Todos los estudiantes de la plataforma.' : 'Estudiantes inscritos en sus clases.'} Consulte por nombre, código, documento o correo.</p></div>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <div class="count-head"><span class="big grad-text" id="sv-n">0</span><span class="muted">${S.isAdmin ? 'registrados' : 'en sus clases'}</span></div>
+        <a class="btn btn-primary" href="#/inscripciones">${icon('userPlus')}Inscribir estudiantes</a>
+      </div>
     </div>
     <div class="panel">
       <div class="toolbar">
@@ -659,17 +667,18 @@ function studentsView(el) {
 
   function update() {
     const sel = $('#sv-class');
-    const opts = S.classes.slice().sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    const opts = myClasses().sort((a, b) => a.name.localeCompare(b.name, 'es'));
     if (sel.options.length - 1 !== opts.length) {
       const v = sel.value;
       sel.innerHTML = `<option value="">Todas las clases</option>` + opts.map((c) => `<option value="${c.id}">${esc(c.name)}${c.archived ? ' (archivada)' : ''}</option>`).join('');
       sel.value = v;
     }
     if (!S.ready.students) return;
-    $('#sv-n').textContent = S.students.length;
+    const base = myStudents();
+    $('#sv-n').textContent = base.length;
     const q = norm($('#sv-q').value);
     const cid = sel.value;
-    const list = S.students.filter((s) => (!cid || (s.classIds || []).includes(cid)) && (!q || norm(`${s.fullName} ${s.studentCode} ${s.docNumber} ${s.email}`).includes(q))).sort(byName);
+    const list = base.filter((s) => (!cid || (s.classIds || []).includes(cid)) && (!q || norm(`${s.fullName} ${s.studentCode} ${s.docNumber} ${s.email}`).includes(q))).sort(byName);
     $('#sv-list').innerHTML = list.length ? `<div class="table-wrap"><table class="tbl cards">
       <thead><tr><th>Estudiante</th><th>Código</th><th>Documento</th><th>Clases</th><th></th></tr></thead>
       <tbody>${list.map((s) => `<tr class="clickable" data-student="${s.uid}">
@@ -689,13 +698,19 @@ function studentsView(el) {
 // =====================================================================
 function studentDetail(el, uid) {
   let subs = [];
-  const unsub = ctx.B.watchSubmissionsBy('studentId', uid, (l) => { subs = l; update(); });
+  const unsub = ctx.B.watchSubmissionsBy('studentId', uid, (l) => { subs = l; update(); }, S.user.uid);
   el.innerHTML = `<div class="stack"><div><a class="back-link" href="#/estudiantes">${icon('arrowLeft')}Consulta de estudiantes</a><div id="sd">${skeletonLines(3)}</div></div></div>`;
   el.addEventListener('click', async (e) => {
     const r = e.target.closest('[data-review]');
     if (r) {
       const post = S.posts.find((p) => p.id === r.dataset.review);
       openReview({ post, student: studentById(uid), sub: subs.find((s) => s.postId === post.id) });
+    }
+    if (e.target.closest('[data-reset-pw]')) {
+      const s = studentById(uid);
+      const ok = await ui.confirmDialog({ title: 'Restablecer contraseña', iconName: 'key', confirm: 'Enviar correo', message: `Se enviará a <b>${esc(s.email)}</b> un enlace para que el estudiante cree una nueva contraseña.` });
+      if (ok) { try { await ctx.B.resetPassword(s.email); ui.toast('Correo enviado', 'success', ctx.demo ? 'En modo demostración no se envían correos.' : s.email); } catch (er) { ui.toast('Error', 'error', errMsg(er)); } }
+      return;
     }
     const rm = e.target.closest('[data-remove-class]');
     if (rm) {
@@ -710,7 +725,8 @@ function studentDetail(el, uid) {
     const s = studentById(uid);
     if (!s) { el.querySelector('#sd').innerHTML = empty('user', 'Estudiante no encontrado'); return; }
     ui.setCrumb(s.fullName, 'ESTUDIANTES / FICHA');
-    const classes = (s.classIds || []).map(classById).filter(Boolean);
+    const classes = (s.classIds || []).map(classById).filter(isMine);
+    const others = (s.classIds || []).map(classById).filter((c) => c && !isMine(c));
     const allGrades = subs.map((x) => x.grade).filter((g) => g != null);
     el.querySelector('#sd').innerHTML = `
       <div class="stack">
@@ -720,7 +736,10 @@ function studentDetail(el, uid) {
             <div style="min-width:0">
               <span class="eyebrow">${icon('grad')}Estudiante</span>
               <h1 style="font-size:clamp(22px,3vw,32px)">${esc(s.fullName)}</h1>
-              <div class="hero-meta"><span>${icon('mail')}${esc(s.email)}</span><span>${icon('calendar')}Registrado ${fmtDate(s.createdAt, false)}</span></div>
+              <div class="hero-meta"><span>${icon('mail')}${esc(s.email)}</span><span>${icon('calendar')}Registrado ${fmtDate(s.createdAt, false)}</span>
+                ${s.mustChangePassword ? `<span class="badge b-warning">${icon('key')}Aún no cambia la clave inicial</span>` : ''}
+                ${others.length ? `<span>${icon('book')}${others.length} clase(s) con otros docentes</span>` : ''}</div>
+              <div class="hero-actions" style="margin-top:14px"><button class="btn btn-sm" data-reset-pw>${icon('key')}Enviar enlace para restablecer contraseña</button></div>
             </div>
           </div>
           ${ring(avg(allGrades), 96, 'general')}
@@ -788,8 +807,8 @@ function accountView(el) {
   el.innerHTML = `
   <div class="stack" style="max-width:760px">
     <section class="hero">
-      <div class="profile-hero">${avatar(TEACHER_NAME, 'lg', S.user.uid)}
-        <div><span class="eyebrow">${icon('shield')}Rol docente</span><h1 style="font-size:28px">${esc(TEACHER_NAME)}</h1><div class="hero-meta"><span>${icon('mail')}${esc(S.user.email)}</span></div></div>
+      <div class="profile-hero">${avatar(teacherName(), 'lg', S.user.uid)}
+        <div><span class="eyebrow">${icon('shield')}${S.isAdmin ? 'Administrador y docente' : 'Rol docente'}</span><h1 style="font-size:28px">${esc(teacherName())}</h1><div class="hero-meta"><span>${icon('mail')}${esc(S.user.email)}</span><span>${icon('book')}${myClasses().length} clases</span></div></div>
       </div>
     </section>
     <div class="panel">
@@ -803,13 +822,13 @@ function accountView(el) {
     </div>
   </div>`;
   const f = el.querySelector('#acc-form');
-  bindPassword(el, 'ac-cur'); bindPassword(el, 'ac-new', { confirmId: 'ac-new2', context: () => [TEACHER_NAME, S.user.email] }); bindPassword(el, 'ac-new2');
+  bindPassword(el, 'ac-cur'); bindPassword(el, 'ac-new', { confirmId: 'ac-new2', context: () => [teacherName(), S.user.email] }); bindPassword(el, 'ac-new2');
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     const cur = f.querySelector('#ac-cur'), nw = f.querySelector('#ac-new'), nw2 = f.querySelector('#ac-new2');
     ui.clearErrors(f);
     if (!cur.value) return ui.fieldError(cur, 'Ingrese su contraseña actual.');
-    if (!analyze(nw.value, [TEACHER_NAME, S.user.email]).valid) return ui.fieldError(nw, 'La nueva contraseña no cumple los requisitos.');
+    if (!analyze(nw.value, [teacherName(), S.user.email]).valid) return ui.fieldError(nw, 'La nueva contraseña no cumple los requisitos.');
     if (nw.value !== nw2.value) return ui.fieldError(nw2, 'Las contraseñas no coinciden.');
     ui.withLoading(f.querySelector('[type=submit]'), async () => {
       try { await ctx.B.changePassword(cur.value, nw.value); ui.toast('Contraseña actualizada', 'success'); f.reset(); f.querySelectorAll('input').forEach((i) => i.dispatchEvent(new Event('input'))); }

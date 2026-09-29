@@ -1,14 +1,15 @@
 // =====================================================================
 //  Backend real: Firebase Authentication + Cloud Firestore (SDK modular v10)
 // =====================================================================
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { initializeApp, deleteApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
-  sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword,
-  verifyBeforeUpdateEmail, deleteUser, setPersistence, browserLocalPersistence
+  getAuth, initializeAuth, inMemoryPersistence, onAuthStateChanged, signInWithEmailAndPassword,
+  createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, EmailAuthProvider,
+  reauthenticateWithCredential, updatePassword, verifyBeforeUpdateEmail, deleteUser,
+  setPersistence, browserLocalPersistence
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  getFirestore, collection, doc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, query,
+  getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, query,
   where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion, arrayRemove, Timestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { firebaseConfig, TEACHER_EMAIL } from './firebase-config.js';
@@ -46,6 +47,7 @@ export function createBackend() {
     logout: () => signOut(auth),
     resetPassword: (email) => sendPasswordResetEmail(auth, email.trim()),
 
+    // Registro libre del estudiante (solo funciona si el administrador lo habilitó)
     async register(d) {
       if (d.email.trim().toLowerCase() === TEACHER_EMAIL.toLowerCase()) throw err('app/teacher-email');
       suspended = true;
@@ -59,7 +61,7 @@ export function createBackend() {
         b.set(doc(db, 'users', uid), {
           uid, role: 'student',
           fullName: d.fullName, studentCode: d.studentCode, docType: d.docType, docNumber: d.docNumber,
-          email: d.email.trim().toLowerCase(), classIds: d.classIds,
+          email: d.email.trim().toLowerCase(), classIds: d.classIds, mustChangePassword: false,
           createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         });
         await b.commit();
@@ -68,7 +70,7 @@ export function createBackend() {
           await deleteUser(cred.user).catch(() => signOut(auth));
           suspended = false;
           authCb(null);
-          if (e.code === 'permission-denied') throw err('app/duplicate');
+          if (e.code === 'permission-denied') throw err('app/registration-closed-or-duplicate');
         }
         suspended = false;
         throw e;
@@ -77,10 +79,50 @@ export function createBackend() {
       authCb(toUser(auth.currentUser));
     },
 
+    // ---------- Creación de cuentas por el docente / administrador ----------
+    // Usa una instancia secundaria de Firebase con sesión en memoria: la cuenta nueva
+    // se crea sin cerrar la sesión de quien la crea. Si el perfil no se puede guardar,
+    // la cuenta recién creada se elimina para no dejar usuarios huérfanos.
+    async provisionAccount({ password, profile }) {
+      const email = profile.email.trim().toLowerCase();
+      if (email === TEACHER_EMAIL.toLowerCase()) throw err('app/teacher-email');
+      const sec = initializeApp(firebaseConfig, `provision-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const secAuth = initializeAuth(sec, { persistence: inMemoryPersistence });
+      try {
+        const cred = await createUserWithEmailAndPassword(secAuth, email, password);
+        const uid = cred.user.uid;
+        const b = writeBatch(db);
+        if (profile.role === 'student') {
+          b.set(doc(db, 'uniques', codeKey(profile.studentCode)), { uid, kind: 'code' });
+          b.set(doc(db, 'uniques', docKey(profile.docType, profile.docNumber)), { uid, kind: 'doc' });
+        }
+        b.set(doc(db, 'users', uid), {
+          ...profile, uid, email, mustChangePassword: true,
+          createdBy: auth.currentUser?.uid || null, createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        });
+        try { await b.commit(); } catch (e) {
+          await deleteUser(cred.user).catch(() => {});
+          if (e.code === 'permission-denied') throw err('app/duplicate');
+          throw e;
+        }
+        return uid;
+      } finally {
+        await signOut(secAuth).catch(() => {});
+        await deleteApp(sec).catch(() => {});
+      }
+    },
+    updateUser: (uid, data) => updateDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() }),
+    watchTeachers: (cb) => onSnapshot(query(collection(db, 'users'), where('role', '==', 'teacher')), (qs) => cb(list(qs)), fail),
+
     async changePassword(current, next) {
       const u = auth.currentUser;
       await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, current));
       await updatePassword(u, next);
+    },
+    // Cambio obligatorio en el primer ingreso
+    async completePasswordChange(current, next) {
+      await api.changePassword(current, next);
+      await updateDoc(doc(db, 'users', auth.currentUser.uid), { mustChangePassword: false, passwordChangedAt: serverTimestamp() });
     },
     async changeEmail(current, newEmail) {
       const u = auth.currentUser;
@@ -90,8 +132,14 @@ export function createBackend() {
     },
     syncEmail: (uid, email) => updateDoc(doc(db, 'users', uid), { email }).catch(() => {}),
 
+    // ---------- Ajustes ----------
+    watchSettings: (cb) => onSnapshot(doc(db, 'settings', 'app'),
+      (s) => cb({ allowSelfRegistration: true, ...(s.exists() ? s.data() : {}) }),
+      () => cb({ allowSelfRegistration: true })),
+    saveSettings: (data) => setDoc(doc(db, 'settings', 'app'), { ...data, updatedAt: serverTimestamp() }, { merge: true }),
+
     // ---------- Perfiles ----------
-    watchProfile: (uid, cb) => onSnapshot(doc(db, 'users', uid), (s) => cb(s.exists() ? plain(s) : null), fail),
+    watchProfile: (uid, cb) => onSnapshot(doc(db, 'users', uid), (s) => cb(s.exists() ? plain(s) : null), (e) => { fail(e); cb(null); }),
     async updateProfile(uid, data, prev) {
       const b = writeBatch(db);
       if (codeKey(data.studentCode) !== codeKey(prev.studentCode)) {
@@ -120,7 +168,7 @@ export function createBackend() {
 
     // ---------- Publicaciones ----------
     watchPostsByClass: (cid, cb) => onSnapshot(query(collection(db, 'posts'), where('classId', '==', cid)), (qs) => cb(list(qs)), fail),
-    watchAllPosts: (cb) => onSnapshot(collection(db, 'posts'), (qs) => cb(list(qs)), fail),
+    watchPostsByOwner: (uid, cb) => onSnapshot(query(collection(db, 'posts'), where('ownerId', '==', uid)), (qs) => cb(list(qs)), fail),
     async createPost(p) {
       const ref = await addDoc(collection(db, 'posts'), { ...p, createdAt: serverTimestamp() });
       return ref.id;
@@ -129,8 +177,12 @@ export function createBackend() {
     updatePost: (id, data) => updateDoc(doc(db, 'posts', id), { ...data, updatedAt: serverTimestamp() }),
 
     // ---------- Entregas / calificaciones ----------
-    watchSubmissionsBy: (field, value, cb) =>
-      onSnapshot(query(collection(db, 'submissions'), where(field, '==', value)), (qs) => cb(list(qs)), fail),
+    // ownerId: los docentes solo pueden consultar entregas de sus propias clases
+    watchSubmissionsBy: (field, value, cb, ownerId) => {
+      const cons = [where(field, '==', value)];
+      if (ownerId && field !== 'ownerId') cons.push(where('ownerId', '==', ownerId));
+      return onSnapshot(query(collection(db, 'submissions'), ...cons), (qs) => cb(list(qs)), fail);
+    },
     submit: (s) => setDoc(doc(db, 'submissions', `${s.postId}_${s.studentId}`), {
       ...s, grade: null, feedback: '', status: 'entregado', submittedAt: serverTimestamp(), gradedAt: null
     }),
@@ -154,6 +206,37 @@ export function createBackend() {
       const b = writeBatch(db);
       ids.forEach((id) => b.update(doc(db, 'notifications', id), { read: true }));
       await b.commit();
+    },
+
+    // ---------- Migración de datos de la versión de un solo docente ----------
+    // Se ejecuta una vez al ingresar el administrador: asigna ownerId a clases,
+    // publicaciones y entregas anteriores, y mueve las notificaciones 'teacher'.
+    async migrateLegacy(adminUid, adminName) {
+      const st = await getDoc(doc(db, 'settings', 'app'));
+      if (st.exists() && (st.data().schemaVersion || 0) >= 2) return 0;
+      const ops = [];
+      const owner = {};
+      (await getDocs(collection(db, 'classes'))).forEach((d) => {
+        const o = d.data().ownerId;
+        owner[d.id] = o || adminUid;
+        if (!o) ops.push([d.ref, { ownerId: adminUid, ownerName: adminName }]);
+      });
+      (await getDocs(collection(db, 'posts'))).forEach((d) => {
+        if (!d.data().ownerId) ops.push([d.ref, { ownerId: owner[d.data().classId] || adminUid }]);
+      });
+      (await getDocs(collection(db, 'submissions'))).forEach((d) => {
+        if (!d.data().ownerId) ops.push([d.ref, { ownerId: owner[d.data().classId] || adminUid }]);
+      });
+      (await getDocs(query(collection(db, 'notifications'), where('userId', '==', 'teacher')))).forEach((d) => {
+        ops.push([d.ref, { userId: adminUid }]);
+      });
+      for (let i = 0; i < ops.length; i += 400) {
+        const b = writeBatch(db);
+        ops.slice(i, i + 400).forEach(([ref, data]) => b.update(ref, data));
+        await b.commit();
+      }
+      await setDoc(doc(db, 'settings', 'app'), { schemaVersion: 2 }, { merge: true });
+      return ops.length;
     }
   };
   return api;

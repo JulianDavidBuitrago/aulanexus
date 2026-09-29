@@ -1,5 +1,5 @@
 // Vistas del estudiante
-import { S, ctx, classById, postsOf, tasksOf } from './state.js';
+import { S, ctx, classById, postsOf, tasksOf, selfRegOpen } from './state.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { LIMITS } from './firebase-config.js';
@@ -73,10 +73,10 @@ function submitModal(post) {
         ui.withLoading(e.currentTarget, async () => {
           try {
             await ctx.B.submit({
-              postId: post.id, classId: post.classId, studentId: S.user.uid, studentName: p.fullName, studentCode: p.studentCode,
+              postId: post.id, classId: post.classId, ownerId: c?.ownerId || '', studentId: S.user.uid, studentName: p.fullName, studentCode: p.studentCode,
               text: ta.value.trim(), files: files.map(({ name, size, content }) => ({ name, size: size || content.length, content })), late: !!late
             });
-            await ctx.B.addNotifications([{ userId: 'teacher', fromUid: S.user.uid, type: 'submission', title: `Nueva entrega · ${p.fullName}`, message: `${post.title} (${c?.name || ''})`, link: `#/tarea/${post.id}`, classId: post.classId }]).catch(() => {});
+            await ctx.B.addNotifications([{ userId: c?.ownerId || 'teacher', fromUid: S.user.uid, type: 'submission', title: `Nueva entrega · ${p.fullName}`, message: `${post.title} (${c?.name || ''})`, link: `#/tarea/${post.id}`, classId: post.classId }]).catch(() => {});
             ui.toast(prev ? 'Entrega actualizada' : 'Entrega enviada', 'success', 'El docente fue notificado.');
             m.close();
           } catch (er) { ui.toast('No se pudo enviar', 'error', errMsg(er)); }
@@ -111,7 +111,7 @@ async function joinModal() {
     title: 'Inscribirme en clases', subtitle: 'Seleccione las clases en las que está matriculado.', iconName: 'userPlus',
     body: avail.length ? `<div class="pick-list">${avail.map((c) => `
       <label class="pick" style="--c:${colorVar(c.color)}"><input type="checkbox" value="${c.id}"><span class="pick-dot">${icon('book')}</span>
-      <span class="pick-body"><b>${esc(c.name)}</b><span>${esc([c.code, c.schedule].filter(Boolean).join(' · '))}</span></span><span class="pick-check">${icon('check')}</span></label>`).join('')}</div>`
+      <span class="pick-body"><b>${esc(c.name)}</b><span>${esc([c.code, c.ownerName, c.schedule].filter(Boolean).join(' · '))}</span></span><span class="pick-check">${icon('check')}</span></label>`).join('')}</div>`
       : empty('check', 'Ya está inscrito en todas las clases', 'No hay más clases activas disponibles.'),
     footer: avail.length ? `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-join data-loading="Inscribiendo…">${icon('userPlus')}Inscribirme</button>` : `<button class="btn" data-close>Cerrar</button>`,
     onMount(el, m) {
@@ -162,7 +162,9 @@ function home(el) {
       { key: 'a', label: 'Promedio general', value: graded.length ? Math.round(avg(graded.map((s) => s.grade)) * 10) / 10 : null, decimals: 1, icon: 'award', color: 'var(--c-emerald)' }
     ]);
     if (!act.length) {
-      el.querySelector('#h-feed').innerHTML = empty('book', 'Aún no está inscrito en clases', 'Inscríbase para ver el material y las tareas.', `<button class="btn btn-primary" data-join-open>${icon('userPlus')}Inscribirme</button>`);
+      el.querySelector('#h-feed').innerHTML = selfRegOpen()
+        ? empty('book', 'Aún no está inscrito en clases', 'Inscríbase para ver el material y las tareas.', `<button class="btn btn-primary" data-join-open>${icon('userPlus')}Inscribirme</button>`)
+        : empty('book', 'Aún no está inscrito en clases', 'Su docente lo inscribirá en sus clases. Recibirá una notificación cuando ocurra.');
       el.querySelector('#h-due').innerHTML = empty('check', 'Sin tareas');
       return;
     }
@@ -191,7 +193,7 @@ function myClasses(el) {
   <div class="stack">
     <div class="filter-row" style="margin:0">
       <div><h2 style="font-size:24px">Mis clases</h2><p class="muted" style="margin-top:4px">Acceda al material didáctico, anuncios y tareas de cada clase.</p></div>
-      <button class="btn btn-primary" data-join-open>${icon('userPlus')}Inscribirme en otra clase</button>
+      <button class="btn btn-primary" data-join-open id="mc-join">${icon('userPlus')}Inscribirme en otra clase</button>
     </div>
     <div class="class-grid" id="mc-grid">${skeletonCards(3)}</div>
     <div id="mc-arch"></div>
@@ -202,7 +204,10 @@ function myClasses(el) {
     if (!S.ready.classes) return;
     const act = activeMine(), arch = myClassList().filter((c) => c.archived);
     el.querySelector('#mc-grid').innerHTML = act.length ? act.map((c) => studentClassCard(c)).join('')
-      : `<div style="grid-column:1/-1">${empty('book', 'No está inscrito en ninguna clase activa', 'Inscríbase en las clases en las que está matriculado.', `<button class="btn btn-primary" data-join-open>${icon('userPlus')}Inscribirme</button>`)}</div>`;
+      : `<div style="grid-column:1/-1">${selfRegOpen()
+        ? empty('book', 'No está inscrito en ninguna clase activa', 'Inscríbase en las clases en las que está matriculado.', `<button class="btn btn-primary" data-join-open>${icon('userPlus')}Inscribirme</button>`)
+        : empty('book', 'No está inscrito en ninguna clase activa', 'Su docente lo inscribirá en sus clases.')}</div>`;
+    el.querySelector('#mc-join').classList.toggle('hidden', !selfRegOpen());
     el.querySelector('#mc-arch').innerHTML = arch.length ? `<h3 style="font-size:17px;margin:8px 0 14px;display:flex;gap:8px;align-items:center">${icon('archive')}Clases archivadas <span class="muted" style="font-size:13px;font-weight:500">(solo lectura)</span></h3><div class="class-grid">${arch.map((c) => studentClassCard(c)).join('')}</div>` : '';
   }
   update();
@@ -218,7 +223,7 @@ function studentClassCard(c) {
     <div class="cc-top"><span class="chip mono chip-c">${icon('hash')}${esc(c.code || '')}</span>${c.archived ? `<span class="badge b-warning">${icon('archive')}Archivada</span>` : pend ? `<span class="badge b-accent">${pend} ${pend === 1 ? 'tarea pendiente' : 'tareas pendientes'}</span>` : `<span class="badge b-success dot">Al día</span>`}</div>
     <h3>${esc(c.name)}</h3>
     ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
-    <div class="cc-meta">${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}</div>
+    <div class="cc-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}</div>
     <div class="cc-foot"><div style="display:flex;align-items:center;gap:10px">${gradePill(a)}<span>promedio · ${postsOf(c.id).length} publicaciones</span></div><span class="go">${icon('arrowRight')}</span></div>
   </article>`;
 }
@@ -271,7 +276,7 @@ function classView(el, id) {
         <span class="eyebrow" style="color:${colorVar(c.color)}">${icon('hash')}${esc(c.code || '')}</span>
         <h1>${esc(c.name)}</h1>
         ${c.description ? `<p>${esc(c.description)}</p>` : ''}
-        <div class="hero-meta">${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}<span>${icon('clipboard')}${tasks.length} tareas</span></div>
+        <div class="hero-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}<span>${icon('clipboard')}${tasks.length} tareas</span></div>
       </div>
       ${ring(a, 92, 'promedio')}`;
     $('#cv-arch').innerHTML = c.archived ? `<div class="callout warn">${icon('archive')}<div>Esta clase fue archivada por el docente. Puede consultar el material y sus calificaciones, pero ya no se reciben entregas.</div></div>` : '';
