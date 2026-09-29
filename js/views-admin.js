@@ -12,6 +12,57 @@ export const routes = { admin: adminView };
 
 const classesOf = (uid, isAdmin = false) => S.classes.filter((c) => c.ownerId === uid || (isAdmin && !c.ownerId));
 
+// ---------- Estudiante existente → también docente ----------
+// Misma cuenta: conserva correo, contraseña, código, clases, entregas y notas.
+export async function promoteToTeacher(st, after) {
+  if (!st) return false;
+  if (st.role === 'teacher') { ui.toast('Ya es docente', 'info', st.fullName); return false; }
+  if (!st.docNumber) { ui.toast('Faltan datos', 'error', 'El estudiante no tiene número de documento registrado.'); return false; }
+  const ok = await ui.confirmDialog({
+    title: 'Habilitar como docente', iconName: 'grad', confirm: 'Habilitar como docente',
+    message: `<b>${esc(st.fullName)}</b> (${esc(st.email)}) seguirá siendo estudiante, con sus clases y notas, y además podrá crear y gestionar sus propias clases como docente.<br><br>Usará la <b>misma cuenta y contraseña</b>; verá el selector <b>Docente / Estudiante</b> en la barra superior.`
+  });
+  if (!ok) return false;
+  try {
+    await ctx.B.promoteStudent(st);
+    await ctx.B.addNotifications([{ userId: st.uid, type: 'post', title: 'Ahora también es docente', message: 'Use el selector Docente / Estudiante de la barra superior para cambiar de vista.', link: '#/' }]).catch(() => {});
+    ui.toast('Habilitado como docente', 'success', `${st.fullName} ahora es docente y estudiante.`);
+    after?.();
+    return true;
+  } catch (er) { ui.toast('No se pudo habilitar', 'error', errMsg(er)); return false; }
+}
+
+// Buscador de estudiantes para convertirlos también en docentes
+function promoteSearch() {
+  ui.modal({
+    title: 'Habilitar a un estudiante como docente', subtitle: 'Busque por nombre, código, documento o correo.', iconName: 'grad', size: 'lg',
+    body: `
+      <div class="input-wrap">${icon('search')}<input class="input" id="ps-q" placeholder="Buscar estudiante…" autocomplete="off"></div>
+      <div class="list" id="ps-list"></div>
+      <div class="callout" style="font-size:12.5px">${icon('info')}<div>No se crea otra cuenta: el estudiante conserva su correo, contraseña, clases y notas, y además podrá gestionar sus propias clases.</div></div>`,
+    footer: `<button class="btn" data-close>Cerrar</button>`,
+    onMount(el, m) {
+      const paint = () => {
+        const q = norm(el.querySelector('#ps-q').value);
+        const list = S.students.filter((x) => x.role === 'student' && (!q || norm(`${x.fullName} ${x.studentCode} ${x.docNumber} ${x.email}`).includes(q))).sort(byName).slice(0, 25);
+        el.querySelector('#ps-list').innerHTML = list.length ? list.map((x) => `
+          <div class="row-item" style="cursor:default">
+            ${avatar(x.fullName, '', x.uid)}
+            <div class="ri-body"><b>${esc(x.fullName)}</b><small>${esc(x.email)} · ${esc(x.docType)} ${esc(x.docNumber)}</small></div>
+            <button class="btn btn-sm btn-primary" data-promote="${x.uid}">${icon('grad')}<span class="hide-sm">Habilitar</span></button>
+          </div>`).join('') : empty('search', q ? 'Sin resultados' : 'No hay estudiantes registrados');
+      };
+      el.querySelector('#ps-q').addEventListener('input', debounce(paint, 120));
+      el.querySelector('#ps-list').addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-promote]'); if (!b) return;
+        const st = S.students.find((x) => x.uid === b.dataset.promote);
+        if (await promoteToTeacher(st)) m.close();
+      });
+      paint();
+    }
+  });
+}
+
 // ---------- Formulario de docente (crear / editar) ----------
 function teacherForm(t = null) {
   ui.modal({
@@ -26,7 +77,7 @@ function teacherForm(t = null) {
         <div class="field span-2"><label for="tf-email">Correo institucional</label><div class="input-wrap">${icon('mail')}<input class="input" id="tf-email" type="email" value="${esc(t?.email || '')}" ${t ? 'disabled' : ''} placeholder="nombre@ucaldas.edu.co"></div><div class="error"></div>
           ${t ? '<span class="hint">El correo de acceso no se puede cambiar desde aquí.</span>' : ''}</div>
       </div>
-      ${t ? '' : `<div class="callout" id="tf-pass" style="font-size:13px">${icon('key')}<div>Contraseña inicial: <b class="mono">PrimerNombre + documento + *</b></div></div>`}`,
+      ${t ? '' : `<div id="tf-existing"></div><div class="callout" id="tf-pass" style="font-size:13px">${icon('key')}<div>Contraseña inicial: <b class="mono">PrimerNombre + documento + *</b></div></div>`}`,
     footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save data-loading="Guardando…">${icon('check')}${t ? 'Guardar cambios' : 'Crear docente'}</button>`,
     onMount(el, m) {
       const $ = (q) => el.querySelector(q);
@@ -36,8 +87,22 @@ function teacherForm(t = null) {
         docNumber: $('#tf-dn').value.trim().replace(/[\s.]/g, '').toUpperCase(),
         email: $('#tf-email').value.trim().toLowerCase()
       });
+      // Si el correo o el documento ya pertenecen a un estudiante, se ofrece habilitarlo (sin crear otra cuenta)
+      const existingStudent = (d) => (t ? null : S.students.find((x) => x.role === 'student'
+        && ((d.email && x.email === d.email) || (d.docNumber && String(x.docNumber).toUpperCase() === d.docNumber))));
+      el.addEventListener('click', async (ev) => {
+        const b = ev.target.closest('[data-promote-existing]'); if (!b) return;
+        const st = S.students.find((x) => x.uid === b.dataset.promoteExisting);
+        if (await promoteToTeacher(st)) m.close();
+      });
       el.addEventListener('input', () => {
         const d = read();
+        const ex = existingStudent(d);
+        if (!t) {
+          $('#tf-existing').innerHTML = ex ? `<div class="callout ok">${icon('userCheck')}<div style="flex:1"><b>${esc(ex.fullName)}</b> ya está registrado como estudiante (${esc(ex.email)}). No cree otra cuenta: habilítelo también como docente y conservará sus clases y notas.
+            <div style="margin-top:10px"><button type="button" class="btn btn-sm btn-primary" data-promote-existing="${ex.uid}">${icon('grad')}Habilitar como docente</button></div></div></div>` : '';
+          $('#tf-pass').hidden = !!ex;
+        }
         if (!t && $('#tf-pass')) $('#tf-pass').innerHTML = `${icon('key')}<div>Contraseña inicial: <b class="mono">${d.fullName && d.docNumber ? esc(initialPassword(d.fullName, d.docNumber)) : 'PrimerNombre + documento + *'}</b></div>`;
       });
       $('[data-save]').addEventListener('click', (e) => {
@@ -51,6 +116,8 @@ function teacherForm(t = null) {
         });
         if (!t && d.email === TEACHER_EMAIL.toLowerCase()) { ui.fieldError($('#tf-email'), 'Es el correo del administrador.'); return; }
         if (!t && S.teachers.some((x) => x.email === d.email)) { ui.fieldError($('#tf-email'), 'Ya existe un docente con ese correo.'); return; }
+        const ex = existingStudent(d);
+        if (ex) { ui.fieldError(ex.email === d.email ? $('#tf-email') : $('#tf-dn'), 'Pertenece a un estudiante registrado. Use "Habilitar como docente".'); return; }
         if (errs.length) return;
         ui.withLoading(e.currentTarget, async () => {
           try {
@@ -102,10 +169,22 @@ function studentAccessForm(t) {
           <div class="error" id="sa-cls-err"></div>
         </div>
       </div>
+      ${has ? `<div class="setting-row" style="margin-top:4px">
+        <div class="sr-text"><b>Dejar solo como estudiante</b><p>Quita el rol docente y conserva su cuenta de estudiante. Solo es posible si no tiene clases propias (activas ni archivadas).</p></div>
+        <button type="button" class="btn btn-sm btn-danger" data-demote>${icon('userMinus')}Quitar rol docente</button>
+      </div>` : ''}
       ${has ? `<div class="callout warn" id="sa-off-note" hidden>${icon('alert')}<div>Al retirar el acceso deja de ver sus clases como estudiante. Sus entregas y notas se conservan y reaparecen si se vuelve a habilitar.</div></div>` : ''}`,
     footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save data-loading="Guardando…">${icon('check')}Guardar</button>`,
     onMount(el, m) {
       const $ = (q) => el.querySelector(q);
+      $('[data-demote]')?.addEventListener('click', async () => {
+        const own = S.classes.filter((c) => c.ownerId === t.uid);
+        if (own.length) { ui.toast('No es posible', 'error', `Tiene ${own.length} clase(s) propia(s). Solo se puede quitar el rol docente a quien no tiene clases.`); return; }
+        const ok = await ui.confirmDialog({ title: 'Quitar rol docente', danger: true, iconName: 'userMinus', confirm: 'Dejar solo estudiante', message: `<b>${esc(t.fullName)}</b> quedará únicamente como estudiante, con su misma cuenta, clases y notas.` });
+        if (!ok) return;
+        try { await ctx.B.demoteToStudent(t); ui.toast('Rol docente retirado', 'success', `${t.fullName} ahora es solo estudiante.`); m.close(); }
+        catch (er) { ui.toast('Error', 'error', errMsg(er)); }
+      });
       $('#sa-on').addEventListener('change', () => {
         $('#sa-fields').hidden = !$('#sa-on').checked;
         if ($('#sa-off-note')) $('#sa-off-note').hidden = $('#sa-on').checked;
@@ -184,7 +263,10 @@ function adminView(el) {
     <div class="panel">
       <div class="panel-head">
         <h2>${icon('grad')}Docentes</h2>
-        <button class="btn btn-sm" data-act="new-teacher">${icon('userPlus')}Nuevo docente</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" data-act="promote-student">${icon('userCheck')}Habilitar a un estudiante</button>
+          <button class="btn btn-sm" data-act="new-teacher">${icon('userPlus')}Nuevo docente</button>
+        </div>
       </div>
       <div class="toolbar"><div class="input-wrap">${icon('search')}<input class="input" id="ad-q" placeholder="Buscar por nombre, correo o documento"></div></div>
       <div id="ad-list">${skeletonLines(3)}</div>
@@ -207,6 +289,7 @@ function adminView(el) {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const t = S.teachers.find((x) => x.uid === b.dataset.id);
     if (b.dataset.act === 'new-teacher') teacherForm();
+    if (b.dataset.act === 'promote-student') promoteSearch();
     if (b.dataset.act === 'edit-teacher' && t) teacherForm(t);
     if (b.dataset.act === 'toggle-teacher' && t) {
       const off = t.active !== false;

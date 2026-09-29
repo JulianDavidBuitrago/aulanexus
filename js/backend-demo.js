@@ -323,6 +323,8 @@ export function createBackend() {
       Object.assign(u, { studentAccess: true, studentCode, classIds: clone(classIds), updatedAt: Date.now() });
       commit();
     },
+    async promoteStudent(st) { await wait(); need(); Object.assign(db.users[st.uid], { role: 'teacher', active: true, studentAccess: true, promotedAt: Date.now(), updatedAt: Date.now() }); commit(); },
+    async demoteToStudent(t) { await wait(); need(); Object.assign(db.users[t.uid], { role: 'student', studentAccess: false, updatedAt: Date.now() }); commit(); },
     async revokeStudentAccess(t) {
       await wait(); need();
       const u = db.users[t.uid];

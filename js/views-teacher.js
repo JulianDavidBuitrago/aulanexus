@@ -9,6 +9,7 @@ import {
   dropzoneHTML, bindDropzone, openReview, TYPE, docText, patchFeed
 } from './components.js';
 import { passwordField, bindPassword, analyze } from './password.js';
+import { promoteToTeacher } from './views-admin.js';
 
 export const routes = {
   '': dashboard,
@@ -706,6 +707,7 @@ function studentDetail(el, uid) {
       const post = S.posts.find((p) => p.id === r.dataset.review);
       openReview({ post, student: studentById(uid), sub: subs.find((s) => s.postId === post.id) });
     }
+    if (e.target.closest('[data-promote-st]')) { await promoteToTeacher(studentById(uid)); return; }
     if (e.target.closest('[data-reset-pw]')) {
       const s = studentById(uid);
       const ok = await ui.confirmDialog({ title: 'Restablecer contraseña', iconName: 'key', confirm: 'Enviar correo', message: `Se enviará a <b>${esc(s.email)}</b> un enlace para que el estudiante cree una nueva contraseña.` });
@@ -740,7 +742,8 @@ function studentDetail(el, uid) {
                 ${s.mustChangePassword ? `<span class="badge b-warning">${icon('key')}Aún no cambia la clave inicial</span>` : ''}
                 ${s.role === 'teacher' ? `<span class="badge b-accent">${icon('grad')}También es docente</span>` : ''}
                 ${others.length ? `<span>${icon('book')}${others.length} clase(s) con otros docentes</span>` : ''}</div>
-              <div class="hero-actions" style="margin-top:14px"><button class="btn btn-sm" data-reset-pw>${icon('key')}Enviar enlace para restablecer contraseña</button></div>
+              <div class="hero-actions" style="margin-top:14px"><button class="btn btn-sm" data-reset-pw>${icon('key')}Enviar enlace para restablecer contraseña</button>
+                ${S.isAdmin && s.role === 'student' ? `<button class="btn btn-sm btn-primary" data-promote-st>${icon('grad')}Habilitar también como docente</button>` : ''}</div>
             </div>
           </div>
           ${ring(avg(allGrades), 96, 'general')}

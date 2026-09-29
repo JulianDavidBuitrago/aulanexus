@@ -175,6 +175,10 @@ export function createBackend() {
       b.update(doc(db, 'users', t.uid), { studentAccess: true, studentCode, classIds, updatedAt: serverTimestamp() });
       try { await b.commit(); } catch (e) { if (e.code === 'permission-denied') throw err('app/duplicate'); throw e; }
     },
+    // Estudiante existente → también docente (misma cuenta; conserva código, clases y notas)
+    promoteStudent: (st) => updateDoc(doc(db, 'users', st.uid), { role: 'teacher', active: true, studentAccess: true, promotedAt: serverTimestamp(), updatedAt: serverTimestamp() }),
+    // Docente-estudiante → solo estudiante (solo si no es dueño de clases)
+    demoteToStudent: (t) => updateDoc(doc(db, 'users', t.uid), { role: 'student', studentAccess: false, updatedAt: serverTimestamp() }),
     async revokeStudentAccess(t) {
       const b = writeBatch(db);
       if (t.studentCode) b.delete(doc(db, 'uniques', codeKey(t.studentCode)));
