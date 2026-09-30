@@ -6,8 +6,9 @@ import { LIMITS } from './firebase-config.js';
 import { esc, fmtDate, timeLeft, avg, fmtGrade, greeting, firstName, errMsg, DOC_TYPES, docLabel, isEmail } from './util.js';
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
-  dropzoneHTML, bindDropzone, taskStatus, codeViewer, bindCodeViewer, fileItems, patchFeed
+  dropzoneHTML, bindDropzone, taskStatus, codeViewer, bindCodeViewer, fileItems, patchFeed, subLinksBlock
 } from './components.js';
+import { collectDrive, driveCards, parseDriveUrl, driveHelp } from './drive.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
 export const routes = {
@@ -59,6 +60,13 @@ function submitModal(post) {
         <textarea class="input mono" id="sb-text" rows="8" maxlength="${LIMITS.maxTextChars}" placeholder="Escriba aquí su respuesta, justificación o comentarios…" style="font-size:13.5px">${esc(prev?.text || '')}</textarea>
         <div class="error"></div>
       </div>
+      <div class="field">
+        <label for="sb-links">Enlaces de Google Drive u otros <span class="hint">opcional · uno por línea (máx. 5)</span></label>
+        <textarea class="input" id="sb-links" rows="2" placeholder="https://drive.google.com/file/d/…&#10;https://docs.google.com/document/d/…">${esc((prev?.links || []).join('\n'))}</textarea>
+        <div id="sb-links-prev"></div>
+        <button type="button" class="link-btn" data-drive-help style="font-size:12.5px;justify-self:start">${icon('info')} ¿Cómo compartir un archivo de Drive?</button>
+        <div class="error"></div>
+      </div>
       <div class="field"><span class="label">Archivos de código <span class="hint">solo .java y .py</span></span>${dropzoneHTML(LIMITS.studentExt)}</div>`,
     footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-send data-loading="Enviando…">${icon('send')}${prev ? 'Reemplazar entrega' : 'Enviar entrega'}</button>`,
     onMount(el, m) {
@@ -66,15 +74,25 @@ function submitModal(post) {
       const count = () => { el.querySelector('#sb-count').textContent = `${ta.value.length.toLocaleString('es-CO')} / ${LIMITS.maxTextChars.toLocaleString('es-CO')}`; };
       ta.addEventListener('input', count); count();
       bindDropzone(el, { allowed: LIMITS.studentExt, get: () => files, set: (v) => { files = v; } });
+      // Vista previa de los enlaces de Drive mientras se escriben
+      const li = el.querySelector('#sb-links');
+      const readLinks = () => li.value.split(/\n+/).map((x) => x.trim()).filter((x) => /^https?:\/\//i.test(x)).slice(0, 5);
+      const paintLinks = () => { el.querySelector('#sb-links-prev').innerHTML = driveCards(collectDrive([], readLinks())); };
+      li.addEventListener('input', paintLinks); paintLinks();
+      el.querySelector('[data-drive-help]').addEventListener('click', driveHelp);
       el.querySelector('[data-send]').addEventListener('click', (e) => {
-        if (!ta.value.trim() && !files.length) { ui.fieldError(ta, 'Escriba una respuesta o adjunte al menos un archivo .java o .py.'); return; }
+        const links = readLinks();
+        const badLine = li.value.split(/\n+/).map((x) => x.trim()).filter(Boolean).find((x) => !/^https?:\/\//i.test(x));
+        if (badLine) { ui.fieldError(li, `"${badLine.slice(0, 40)}" no es un enlace válido (debe empezar por https://).`); return; }
+        ui.fieldError(li, '');
+        if (!ta.value.trim() && !files.length && !links.length) { ui.fieldError(ta, 'Escriba una respuesta, pegue un enlace o adjunte al menos un archivo .java o .py.'); return; }
         ui.fieldError(ta, '');
         const p = S.profile;
         ui.withLoading(e.currentTarget, async () => {
           try {
             await ctx.B.submit({
               postId: post.id, classId: post.classId, ownerId: c?.ownerId || '', studentId: S.user.uid, studentName: p.fullName, studentCode: p.studentCode,
-              text: ta.value.trim(), files: files.map(({ name, size, content }) => ({ name, size: size || content.length, content })), late: !!late
+              text: ta.value.trim(), links, files: files.map(({ name, size, content }) => ({ name, size: size || content.length, content })), late: !!late
             });
             await ctx.B.addNotifications([{ userId: c?.ownerId || 'teacher', fromUid: S.user.uid, type: 'submission', title: `Nueva entrega · ${p.fullName}`, message: `${post.title} (${c?.name || ''})`, link: `#/tarea/${post.id}`, classId: post.classId }]).catch(() => {});
             ui.toast(prev ? 'Entrega actualizada' : 'Entrega enviada', 'success', 'El docente fue notificado.');
@@ -95,6 +113,7 @@ function gradeModal(post, sub) {
       <div><div class="label" style="margin-bottom:8px">Retroalimentación del docente</div><div class="text-block" style="font-family:var(--font)">${sub.feedback ? esc(sub.feedback) : '<span class="muted">Sin comentarios.</span>'}</div></div>
       ${sub.submittedAt ? `
         <div><div class="label" style="margin-bottom:8px">Su entrega · ${fmtDate(sub.submittedAt)}</div><div class="text-block">${sub.text ? esc(sub.text) : '<span class="muted">Sin texto.</span>'}</div></div>
+        ${subLinksBlock(sub)}
         ${(sub.files || []).length ? codeViewer(sub.files) : ''}` : ''}`,
     footer: `<button class="btn btn-primary" data-close>Entendido</button>`,
     onMount: (el) => { if (sub.files?.length) bindCodeViewer(el, sub.files); }

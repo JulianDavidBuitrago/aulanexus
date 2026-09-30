@@ -4,6 +4,7 @@ import { hueOf, toast, modal, withLoading } from './ui.js';
 import { esc, initials, fmtDate, timeAgo, timeLeft, fmtGrade, gradeTone, linkify, langOf, fmtBytes, extOf, download, errMsg, docLabel, youtubeId } from './util.js';
 import { LIMITS } from './firebase-config.js';
 import { S, ctx, classById, ownerOf } from './state.js';
+import { collectDrive, driveCards, parseDriveUrl } from './drive.js';
 
 export const avatar = (name, size = '', key) =>
   `<div class="avatar ${size}" style="--h:${hueOf(key || name || '')}" aria-hidden="true">${esc(initials(name))}</div>`;
@@ -76,7 +77,8 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
   const c = classById(p.classId);
   const allLinks = (p.links || []).filter(Boolean);
   const videos = allLinks.map(youtubeId).filter(Boolean);
-  const links = allLinks.filter((l) => !youtubeId(l));
+  const drives = collectDrive(p.driveFiles || [], allLinks);
+  const links = allLinks.filter((l) => !youtubeId(l) && !parseDriveUrl(l));
   const files = p.files || [];
   let foot = '';
   if (p.type === 'tarea' && noFoot) {
@@ -120,6 +122,7 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
     </div>
     ${p.body ? `<div class="post-body">${linkify(p.body)}</div>` : ''}
     ${videos.map((id) => videoEmbed(id, p.title)).join('')}
+    ${driveCards(drives)}
     ${links.length ? `<div class="post-links">${links.map((l) => `<a class="post-link" href="${esc(l)}" target="_blank" rel="noopener noreferrer">${icon('link')}<span>${esc(l.replace(/^https?:\/\//, ''))}</span></a>`).join('')}</div>` : ''}
     ${files.length ? `<div class="post-files">${files.map((f, i) => `<button class="post-link" data-act="open-files" data-id="${p.id}" data-i="${i}">${icon('code')}<span>${esc(f.name)}</span></button>`).join('')}</div>` : ''}
     ${foot}
@@ -270,6 +273,7 @@ export function openReview({ post, student, sub }) {
         </div>
         <div><div class="label" style="margin-bottom:8px">Respuesta en texto</div>
           <div class="text-block">${sub.text ? esc(sub.text) : '<span class="muted">Sin texto.</span>'}</div></div>
+        ${subLinksBlock(sub)}
         ${(sub.files || []).length ? `<div><div class="label" style="margin-bottom:8px">Archivos de código (${sub.files.length})</div>${codeViewer(sub.files)}</div>` : ''}
       ` : `<div class="callout warn">${icon('alert')}<div>Este estudiante no ha realizado la entrega. Puede registrar una calificación de todas formas (por ejemplo, 0.0 por no entrega).</div></div>`}
     </div>
@@ -338,4 +342,15 @@ export function showCredentials({ name, email, password, role = 'estudiante' }) 
       });
     }
   });
+}
+
+// Enlaces de una entrega (Drive → tarjetas con visor; otros → enlaces)
+export function subLinksBlock(sub) {
+  const links = (sub?.links || []).filter(Boolean);
+  if (!links.length) return '';
+  const drives = collectDrive([], links);
+  const others = links.filter((l) => !parseDriveUrl(l));
+  return `<div><div class="label" style="margin-bottom:8px">Enlaces entregados (${links.length})</div>
+    ${driveCards(drives)}
+    ${others.length ? `<div class="post-links" style="margin-top:8px">${others.map((l) => `<a class="post-link" href="${esc(l)}" target="_blank" rel="noopener noreferrer">${icon('link')}<span>${esc(l.replace(/^https?:\/\//, ''))}</span></a>`).join('')}</div>` : ''}</div>`;
 }

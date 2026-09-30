@@ -904,3 +904,25 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
   .role-switch button { padding: 6px 8px; }
   .role-switch button span { display: none; }
 }
+
+/* ---------- Google Drive ---------- */
+.drive-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 10px; }
+.drive-card { --dk: #64748b; display: flex; align-items: center; gap: 6px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); transition: all .22s var(--ease); min-width: 0; }
+.drive-card:hover { border-color: color-mix(in srgb, var(--dk) 55%, transparent); box-shadow: 0 10px 26px -16px var(--dk); transform: translateY(-2px); }
+.drive-card .dc-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 12px; background: none; border: 0; text-align: left; color: inherit; }
+.drive-card .dc-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none; color: #fff; background: var(--dk); box-shadow: 0 8px 18px -10px var(--dk); }
+.drive-card .dc-body { flex: 1; min-width: 0; }
+.drive-card .dc-body b { display: block; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drive-card .dc-body small { font-size: 11.5px; color: var(--muted); }
+.drive-card .dc-eye { color: var(--muted); transition: color .2s; }
+.drive-card:hover .dc-eye { color: var(--dk); }
+.drive-card > .btn { margin-right: 6px; }
+.drive-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#cp-drive:not(:empty), #ep-drive:not(:empty), #sb-links-prev:not(:empty) { margin-top: 8px; }
+.drive-viewer { position: relative; width: 100%; height: min(72vh, 780px); border-radius: 16px; overflow: hidden; background: #fff; border: 1px solid var(--border); }
+.drive-viewer.slides, .drive-viewer.video { height: auto; aspect-ratio: 16 / 9; max-height: 72vh; background: #000; }
+.drive-viewer iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.drive-viewer .dv-loading { position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center; color: #64748b; font-size: 13px; }
+.drive-viewer .dv-loading .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+.help-steps { margin: 0; padding-left: 20px; display: grid; gap: 10px; font-size: 14px; color: var(--text-2); }
+@media (max-width: 720px) { .drive-viewer { height: 68vh; } }

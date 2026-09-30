@@ -10,6 +10,7 @@ import {
 } from './components.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 import { promoteToTeacher } from './views-admin.js';
+import { pickFromDrive, driveCards, pickerConfigured } from './drive.js';
 
 export const routes = {
   '': dashboard,
@@ -105,6 +106,38 @@ function classForm(c = null) {
   });
 }
 
+// ---------- Google Drive en publicaciones ----------
+const driveBlock = (prefix) => `
+  <div class="field">
+    <span class="label">Google Drive <span class="hint">PDF, documentos, presentaciones, hojas, videos o carpetas</span></span>
+    <div class="drive-actions">
+      <button type="button" class="btn btn-sm" data-drive-pick="${prefix}">${icon('upload')}${pickerConfigured() ? 'Elegir desde Google Drive' : 'Agregar desde Google Drive'}</button>
+      ${pickerConfigured() ? `<label class="check" style="font-size:12.5px"><input type="checkbox" id="${prefix}-share" checked><span>Compartir en modo lector con “cualquier persona con el enlace”</span></label>` : '<span class="muted" style="font-size:12.5px">o pegue enlaces de Drive en el campo Enlaces</span>'}
+    </div>
+    <div id="${prefix}-drive"></div>
+  </div>`;
+function bindDriveBlock(root, prefix, get, set) {
+  const paint = () => { root.querySelector(`#${prefix}-drive`).innerHTML = driveCards(get(), { removable: true }); };
+  root.addEventListener('click', async (e) => {
+    const pick = e.target.closest(`[data-drive-pick="${prefix}"]`);
+    if (pick) {
+      try {
+        const items = await pickFromDrive({ share: root.querySelector(`#${prefix}-share`)?.checked !== false });
+        if (items.length) {
+          const cur = get();
+          items.forEach((it) => { if (!cur.some((x) => x.id === it.id)) cur.push(it); });
+          set(cur.slice(0, 15)); paint();
+          ui.toast(`${items.length} archivo(s) de Drive agregado(s)`, 'success');
+        }
+      } catch (er) { ui.toast('Google Drive', 'error', er.message || 'No fue posible abrir el selector.'); }
+    }
+    const del = e.target.closest(`#${prefix}-drive [data-drive-del]`);
+    if (del) { e.stopPropagation(); const cur = get(); cur.splice(+del.dataset.driveDel, 1); set(cur); paint(); }
+  }, true);
+  paint();
+  return paint;
+}
+
 // ---------- Edición de publicaciones ----------
 const toLocalInput = (ms) => {
   if (!ms) return '';
@@ -119,6 +152,7 @@ function editPostForm(post, { hasSubs = false } = {}) {
   const c = classById(post.classId);
   let type = post.type;
   let files = (post.files || []).map((f) => ({ ...f }));
+  let driveFiles = (post.driveFiles || []).map((f) => ({ ...f }));
   const lockType = post.type === 'tarea' && hasSubs;
   ui.modal({
     title: 'Editar publicación', subtitle: esc(c?.name || ''), iconName: 'edit', size: 'lg',
@@ -131,15 +165,17 @@ function editPostForm(post, { hasSubs = false } = {}) {
       <div class="field"><label for="ep-title">Título</label><input class="input" id="ep-title" maxlength="140" value="${esc(post.title)}"><div class="error"></div></div>
       <div class="field"><label for="ep-body">Contenido</label><textarea class="input" id="ep-body" rows="6" maxlength="8000">${esc(post.body || '')}</textarea></div>
       <div class="form-grid">
-        <div class="field"><label for="ep-links">Enlaces <span class="hint">uno por línea · YouTube se muestra como video</span></label><textarea class="input" id="ep-links" rows="3">${esc((post.links || []).join('\n'))}</textarea></div>
+        <div class="field"><label for="ep-links">Enlaces <span class="hint">uno por línea · YouTube y Drive se muestran integrados</span></label><textarea class="input" id="ep-links" rows="3">${esc((post.links || []).join('\n'))}</textarea></div>
         <div class="field" id="ep-due-f" ${type === 'tarea' ? '' : 'hidden'}><label for="ep-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="ep-due" type="datetime-local" value="${toLocalInput(post.dueAt)}"></div><div class="error"></div></div>
       </div>
+      ${driveBlock('ep')}
       <div class="field"><span class="label">Archivos de código de apoyo</span>${dropzoneHTML(LIMITS.teacherExt, 'Agregue o quite archivos (clic o arrastrar)')}</div>
       <label class="check"><input type="checkbox" id="ep-notify"><span>Notificar a los estudiantes de la clase que la publicación fue actualizada</span></label>`,
     footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save data-loading="Guardando…">${icon('check')}Guardar cambios</button>`,
     onMount(el, m) {
       const $m = (q) => el.querySelector(q);
       bindDropzone(el, { allowed: LIMITS.teacherExt, get: () => files, set: (v) => { files = v; } });
+      bindDriveBlock(el, 'ep', () => driveFiles, (v) => { driveFiles = v; });
       $m('#ep-type').addEventListener('click', (e) => {
         const b = e.target.closest('[data-t]'); if (!b || b.disabled) return;
         type = b.dataset.t;
@@ -156,7 +192,7 @@ function editPostForm(post, { hasSubs = false } = {}) {
           if (!d.value) { ui.fieldError(d, 'Defina la fecha límite de la tarea.'); return; }
           dueAt = new Date(d.value).getTime();
         }
-        const data = { type, title: title.value.trim(), body: $m('#ep-body').value.trim(), links: cleanLinks($m('#ep-links').value), files, dueAt };
+        const data = { type, title: title.value.trim(), body: $m('#ep-body').value.trim(), links: cleanLinks($m('#ep-links').value), files, driveFiles, dueAt };
         const notify = $m('#ep-notify').checked;
         ui.withLoading(e.currentTarget, async () => {
           try {
@@ -273,6 +309,7 @@ function classDetail(el, id) {
   let tab = 'posts';
   let subs = [];
   let composerFiles = [];
+  let composerDrive = [];
   let type = 'anuncio';
   const unsub = ctx.B.watchSubmissionsBy('classId', id, (l) => { subs = l; update(); }, S.user.uid);
 
@@ -304,9 +341,10 @@ function classDetail(el, id) {
               <div class="field"><label for="cp-title">Título</label><input class="input" id="cp-title" maxlength="140" placeholder="Título de la publicación"><div class="error"></div></div>
               <div class="field"><label for="cp-body">Contenido</label><textarea class="input" id="cp-body" rows="5" maxlength="8000" placeholder="Escriba el contenido. Los enlaces se convierten automáticamente en vínculos."></textarea></div>
               <div class="form-grid">
-                <div class="field"><label for="cp-links">Enlaces <span class="hint">uno por línea · los de YouTube se muestran como video</span></label><textarea class="input" id="cp-links" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://drive.google.com/…"></textarea></div>
+                <div class="field"><label for="cp-links">Enlaces <span class="hint">uno por línea · YouTube y Drive se muestran integrados</span></label><textarea class="input" id="cp-links" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://drive.google.com/…"></textarea></div>
                 <div class="field" id="cp-due-f" hidden><label for="cp-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="cp-due" type="datetime-local"></div><div class="error"></div></div>
               </div>
+              ${driveBlock('cp')}
               <div class="field"><span class="label">Archivos de código de apoyo <span class="hint">opcional</span></span>${dropzoneHTML(LIMITS.teacherExt, 'Adjunte ejemplos de código (clic o arrastrar)')}</div>
               <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
                 <span class="muted" style="font-size:12.5px;display:flex;gap:6px;align-items:center">${icon('bell')}Se notificará a todos los estudiantes de la clase.</span>
@@ -360,6 +398,7 @@ function classDetail(el, id) {
     $('#cp-due-f').hidden = type !== 'tarea';
   });
   bindDropzone(composer, { allowed: LIMITS.teacherExt, get: () => composerFiles, set: (v) => { composerFiles = v; } });
+  const paintDrive = bindDriveBlock(composer, 'cp', () => composerDrive, (v) => { composerDrive = v; });
 
   $('#cp-send').addEventListener('click', (e) => {
     const c = classById(id);
@@ -373,7 +412,7 @@ function classDetail(el, id) {
       dueAt = new Date(d.value).getTime();
     }
     const links = cleanLinks($('#cp-links').value);
-    const post = { classId: id, ownerId: ownerOf(id), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, dueAt };
+    const post = { classId: id, ownerId: ownerOf(id), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, driveFiles: composerDrive, dueAt };
     ui.withLoading(e.currentTarget, async () => {
       try {
         await ctx.B.createPost(post);
@@ -384,6 +423,7 @@ function classDetail(el, id) {
         ui.toast('Publicación creada', 'success', `Se notificó a ${n} ${n === 1 ? 'estudiante' : 'estudiantes'}.`);
         ['#cp-title', '#cp-body', '#cp-links', '#cp-due'].forEach((s) => { $(s).value = ''; });
         composerFiles = []; composer.querySelector('.file-list').innerHTML = '';
+        composerDrive = []; paintDrive();
         openComposer(false);
       } catch (er) { ui.toast('No se pudo publicar', 'error', errMsg(er)); }
     });
