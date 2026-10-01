@@ -142,6 +142,8 @@ export function errMsg(e) {
     'app/registration-closed-or-duplicate': 'El registro libre está deshabilitado, o el código / documento ya está registrado.',
     'app/registration-closed': 'El registro libre de estudiantes está deshabilitado. Su docente creará su cuenta.',
     'permission-denied': 'No tiene permisos para realizar esta acción.',
+    'invalid-argument': 'La base de datos rechazó el formato de los datos. Actualice la página (Ctrl + F5) e intente de nuevo.',
+    'resource-exhausted': 'El documento superó el tamaño permitido. Reduzca imágenes o contenido.',
     'unavailable': 'El servicio no está disponible temporalmente. Intente de nuevo.'
   };
   for (const k of Object.keys(map)) if (code.includes(k)) return map[k];

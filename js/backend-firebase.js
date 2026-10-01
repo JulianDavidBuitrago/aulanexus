@@ -30,6 +30,13 @@ export function createBackend() {
     return o;
   };
   const list = (qs) => qs.docs.map(plain);
+  // Firestore no admite listas dentro de listas (filas de tablas, siglas, glosario del informe):
+  // al guardar, cada lista interna se envuelve como { __a: [...] } y al leer se restaura.
+  const packArr = (v) => (Array.isArray(v) ? v.map((x) => (Array.isArray(x) ? { __a: packArr(x) } : packArr(x)))
+    : v && typeof v === 'object' && v.constructor === Object ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, packArr(x)])) : v);
+  const unpackArr = (v) => (Array.isArray(v) ? v.map(unpackArr)
+    : v && typeof v === 'object' && !(v instanceof Timestamp) ? (Array.isArray(v.__a) && Object.keys(v).length === 1 ? unpackArr(v.__a) : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unpackArr(x)]))) : v);
+  const plainPractice = (snap) => unpackArr(plain(snap));
   const fail = (e) => console.error('[Firestore]', e);
   const err = (code) => Object.assign(new Error(code), { code });
 
@@ -211,12 +218,12 @@ export function createBackend() {
 
     // ---------- Prácticas empresariales ----------
     // field: 'ownerId' (docente) o 'studentId' (estudiante)
-    watchPractices: (field, value, cb) => onSnapshot(query(collection(db, 'practices'), where(field, '==', value)), (qs) => cb(list(qs)), (e) => { fail(e); cb([]); }),
+    watchPractices: (field, value, cb) => onSnapshot(query(collection(db, 'practices'), where(field, '==', value)), (qs) => cb(qs.docs.map(plainPractice)), (e) => { fail(e); cb([]); }),
     async createPractice(p) {
-      const ref = await addDoc(collection(db, 'practices'), { ...p, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      const ref = await addDoc(collection(db, 'practices'), { ...packArr(p), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       return ref.id;
     },
-    updatePractice: (id, data) => updateDoc(doc(db, 'practices', id), { ...data, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || null }),
+    updatePractice: (id, data) => updateDoc(doc(db, 'practices', id), { ...packArr(data), updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || null }),
     deletePractice: (id) => deleteDoc(doc(db, 'practices', id)),
     watchPracticeComments: (pid, cb) => onSnapshot(query(collection(db, 'practices', pid, 'comments'), orderBy('createdAt', 'asc')), (qs) => cb(list(qs)), (e) => { fail(e); cb([]); }),
     addPracticeComment: (pid, c) => addDoc(collection(db, 'practices', pid, 'comments'), { ...c, createdAt: serverTimestamp() }),
