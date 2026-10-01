@@ -32,3 +32,7 @@ export const LIMITS = {
   maxFiles: 5,
   maxTextChars: 20000
 };
+
+export const EMAIL_RELAY = { 
+  url: 'https://script.google.com/macros/s/AKfycby9mfNWlQmGr03Lyp4BEmq1T8BwTS3J7lZcmtyaGNIJ_WERgMtPxxd_y7TzZPz7DOCI/exec' 
+};
