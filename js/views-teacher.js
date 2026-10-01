@@ -7,6 +7,7 @@ import { esc, norm, fmtDate, timeAgo, avg, fmtGrade, greeting, errMsg, CLASS_COL
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
   dropzoneHTML, bindDropzone, openReview, TYPE, docText, patchFeed
+, isReturned, subBadge
 } from './components.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 import { promoteToTeacher } from './views-admin.js';
@@ -501,7 +502,7 @@ function classDetail(el, id) {
         const gs = tasks.map((t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid));
         const a = avg(gs.map((x) => x?.grade).filter((g) => g != null));
         return `<tr><td><div class="who">${avatar(s.fullName, 'sm', s.uid)}<b style="font-size:13px;white-space:nowrap">${esc(s.fullName)}</b></div></td>
-          ${gs.map((x, i) => `<td><button class="btn btn-ghost btn-sm" style="padding:0 4px" data-grade="${tasks[i].id}" data-sid="${s.uid}" title="Calificar">${x?.grade != null ? gradePill(x.grade) : x?.submittedAt ? '<span class="badge b-info">Por calificar</span>' : '<span class="muted">—</span>'}</button></td>`).join('')}
+          ${gs.map((x, i) => `<td><button class="btn btn-ghost btn-sm" style="padding:0 4px" data-grade="${tasks[i].id}" data-sid="${s.uid}" title="Calificar">${x?.grade != null ? gradePill(x.grade) : x?.submittedAt ? '<span class="badge b-info">Por calificar</span>' : isReturned(x) ? `<span class="badge b-warning">${icon('undo')}Devuelta</span>` : '<span class="muted">—</span>'}</button></td>`).join('')}
           <td class="final">${gradePill(a)}</td></tr>`;
       }).join('')}</tbody></table></div>
       <p class="muted" style="font-size:12.5px;margin-top:10px">La definitiva es el promedio simple de las tareas calificadas. Haga clic en una celda para revisar o calificar.</p>`;
@@ -593,7 +594,7 @@ function taskDetail(el, postId) {
       <div class="filter-row">
         <h2 style="font-size:18px;display:flex;gap:10px;align-items:center">${icon('inbox')}Entregas</h2>
         <div class="segmented" id="td-filter">
-          <button class="active" data-f="all">Todos</button><button data-f="submitted">Por calificar</button><button data-f="graded">Calificados</button><button data-f="missing">Sin entrega</button>
+          <button class="active" data-f="all">Todos</button><button data-f="submitted">Por calificar</button><button data-f="graded">Calificados</button><button data-f="returned">Devueltas</button><button data-f="missing">Sin entrega</button>
         </div>
       </div>
       <div id="td-list">${skeletonLines(4)}</div>
@@ -656,18 +657,19 @@ function taskDetail(el, postId) {
     const shown = rows.filter((r) =>
       filter === 'all' ? true :
       filter === 'submitted' ? r.sub?.submittedAt && r.sub.grade == null :
-      filter === 'graded' ? r.sub?.grade != null : !r.sub?.submittedAt);
+      filter === 'graded' ? r.sub?.grade != null :
+      filter === 'returned' ? isReturned(r.sub) : !r.sub?.submittedAt && !isReturned(r.sub));
     $('#td-list').innerHTML = shown.length ? `<div class="table-wrap"><table class="tbl cards">
       <thead><tr><th>Estudiante</th><th>Estado</th><th>Entregado</th><th>Archivos</th><th>Nota</th><th></th></tr></thead>
       <tbody>${shown.map(({ s, sub }) => {
-        const st = sub?.grade != null ? '<span class="badge b-success">Calificada</span>' : sub?.submittedAt ? `<span class="badge ${sub.late ? 'b-warning' : 'b-info'}">${sub.late ? 'Entregada tarde' : 'Por calificar'}</span>` : '<span class="badge b-danger">Sin entrega</span>';
+        const st = subBadge(sub);
         return `<tr>
           <td class="who-cell"><div class="who">${avatar(s.fullName, '', s.uid)}<div style="min-width:0"><b>${esc(s.fullName)}</b><small class="mono">${esc(s.studentCode || '')}</small></div></div></td>
           <td data-label="Estado">${st}</td>
-          <td data-label="Entregado" class="num">${sub?.submittedAt ? fmtDate(sub.submittedAt) : '—'}</td>
+          <td data-label="Entregado" class="num">${sub?.submittedAt ? fmtDate(sub.submittedAt) : isReturned(sub) ? `<span class="muted" title="Devuelta ${fmtDate(sub.returnedAt)}">Esperando corrección${sub.returnDueAt ? ` · hasta ${fmtDate(sub.returnDueAt)}` : ''}</span>` : '—'}</td>
           <td data-label="Archivos" class="num">${(sub?.files || []).length}</td>
           <td data-label="Nota">${gradePill(sub?.grade)}</td>
-          <td class="actions-cell"><div class="actions"><button class="btn btn-sm ${sub?.submittedAt && sub.grade == null ? 'btn-primary' : ''}" data-review="${s.uid}">${icon(sub?.grade != null ? 'edit' : 'award')}${sub?.grade != null ? 'Editar nota' : sub?.submittedAt ? 'Revisar y calificar' : 'Calificar'}</button></div></td>
+          <td class="actions-cell"><div class="actions"><button class="btn btn-sm ${sub?.submittedAt && sub.grade == null ? 'btn-primary' : ''}" data-review="${s.uid}">${icon(sub?.grade != null ? 'edit' : isReturned(sub) ? 'eye' : 'award')}${sub?.grade != null ? 'Editar nota' : sub?.submittedAt ? 'Revisar y calificar' : isReturned(sub) ? 'Ver devolución' : 'Calificar'}</button></div></td>
         </tr>`;
       }).join('')}</tbody></table></div>` : empty('inbox', 'Nada por aquí', 'No hay estudiantes en esta categoría.');
   }
@@ -806,10 +808,10 @@ function studentDetail(el, uid) {
               <thead><tr><th>Tarea</th><th>Estado</th><th>Nota</th><th>Retroalimentación</th><th></th></tr></thead>
               <tbody>${tasks.map((t) => {
                 const x = subs.find((y) => y.postId === t.id);
-                const st = x?.grade != null ? '<span class="badge b-success">Calificada</span>' : x?.submittedAt ? '<span class="badge b-info">Por calificar</span>' : (t.dueAt && t.dueAt < Date.now()) ? '<span class="badge b-danger">Sin entrega</span>' : '<span class="badge b-accent">Pendiente</span>';
+                const st = subBadge(x, t);
                 return `<tr><td class="who-cell"><b>${esc(t.title)}</b><div class="muted" style="font-size:12px">${t.dueAt ? 'Límite: ' + fmtDate(t.dueAt) : ''}</div></td>
                   <td data-label="Estado">${st}</td><td data-label="Nota">${gradePill(x?.grade)}</td>
-                  <td data-label="Retroalimentación" style="max-width:280px;font-size:13px;color:var(--text-2)">${esc(x?.feedback || '—')}</td>
+                  <td data-label="Retroalimentación" style="max-width:280px;font-size:13px;color:var(--text-2)">${isReturned(x) ? `<b style="color:var(--warning)">Devuelta:</b> ${esc(x.returnNote || '')}` : esc(x?.feedback || '—')}</td>
                   <td class="actions-cell"><div class="actions"><button class="btn btn-sm" data-review="${t.id}">${icon('award')}${x?.submittedAt ? 'Revisar' : 'Calificar'}</button></div></td></tr>`;
               }).join('')}</tbody></table></div>` : '<p class="muted">Esta clase aún no tiene tareas.</p>'}
           </div>`;

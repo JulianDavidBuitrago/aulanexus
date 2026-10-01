@@ -147,7 +147,7 @@ function handleNotifs(list) {
     const fresh = list.filter((n) => !prev.has(n.id) && !n.read);
     if (fresh.length) {
       ringBell();
-      fresh.slice(0, 2).forEach((n) => ui.toast(n.title, n.type === 'grade' ? 'success' : 'info', n.message, 5500));
+      fresh.slice(0, 2).forEach((n) => ui.toast(n.title, n.type === 'grade' ? 'success' : n.type === 'returned' ? 'warn' : 'info', n.message, 5500));
     }
   }
   seenNotifs = new Set(list.map((n) => n.id));
@@ -160,7 +160,7 @@ function ringBell() {
   b.classList.remove('is-ringing'); void b.offsetWidth; b.classList.add('is-ringing');
   b.addEventListener('animationend', () => b.classList.remove('is-ringing'), { once: true });
 }
-const NOTIF_IC = { post: 'megaphone', grade: 'award', submission: 'upload' };
+const NOTIF_IC = { post: 'megaphone', grade: 'award', submission: 'upload', returned: 'undo' };
 function renderNotifPanel() {
   const panel = document.getElementById('notif-panel');
   if (!panel || panel.classList.contains('hidden')) return;
@@ -310,7 +310,7 @@ function updateChrome() {
   };
   if (S.role === 'teacher') setCount('clases', S.pendingSubs.length);
   else {
-    const pend = S.posts.filter((p) => p.type === 'tarea' && !S.classes.find((c) => c.id === p.classId)?.archived && !S.mySubs.some((s) => s.postId === p.id) && (!p.dueAt || p.dueAt > Date.now())).length;
+    const pend = S.posts.filter((p) => p.type === 'tarea' && !S.classes.find((c) => c.id === p.classId)?.archived && !S.mySubs.some((s) => s.postId === p.id && s.submittedAt) && (!p.dueAt || p.dueAt > Date.now() || S.mySubs.some((s) => s.postId === p.id && s.status === 'devuelto'))).length;
     setCount('clases', pend);
   }
 }

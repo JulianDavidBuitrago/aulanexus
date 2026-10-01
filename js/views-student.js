@@ -7,6 +7,7 @@ import { esc, fmtDate, timeLeft, avg, fmtGrade, greeting, firstName, errMsg, DOC
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
   dropzoneHTML, bindDropzone, taskStatus, codeViewer, bindCodeViewer, fileItems, patchFeed, subLinksBlock
+, isReturned, returnNotice
 } from './components.js';
 import { collectDrive, driveCards, parseDriveUrl, driveHelp } from './drive.js';
 import { passwordField, bindPassword, analyze } from './password.js';
@@ -49,12 +50,16 @@ function submitModal(post) {
   const c = classById(post.classId);
   const prev = subOf(post.id);
   let files = (prev?.files || []).map((f) => ({ ...f }));
-  const late = post.dueAt && Date.now() > post.dueAt;
+  const returned = isReturned(prev);
+  // Si el docente devolvió la entrega, el plazo que cuenta es el nuevo (si lo fijó); si no, el reenvío no se marca tardío
+  const limit = returned ? prev.returnDueAt : post.dueAt;
+  const late = !!limit && Date.now() > limit;
   ui.modal({
     title: post.title, subtitle: `${esc(c?.name || '')}${post.dueAt ? ` · Límite: ${fmtDate(post.dueAt)}` : ''}`, iconName: 'upload', size: 'lg',
     body: `
+      ${returned ? returnNotice(prev) : ''}
       ${late ? `<div class="callout warn">${icon('alert')}<div>La fecha límite ya pasó. Su entrega quedará marcada como <b>tardía</b>.</div></div>` : ''}
-      ${prev ? `<div class="callout">${icon('info')}<div>Ya realizó una entrega el ${fmtDate(prev.submittedAt)}. Puede reemplazarla mientras no haya sido calificada.</div></div>` : ''}
+      ${prev && !returned ? `<div class="callout">${icon('info')}<div>Ya realizó una entrega el ${fmtDate(prev.submittedAt)}. Puede reemplazarla mientras no haya sido calificada.</div></div>` : ''}
       <div class="field">
         <label for="sb-text">Respuesta en texto plano <span class="hint" id="sb-count">0 / ${LIMITS.maxTextChars.toLocaleString('es-CO')}</span></label>
         <textarea class="input mono" id="sb-text" rows="8" maxlength="${LIMITS.maxTextChars}" placeholder="Escriba aquí su respuesta, justificación o comentarios…" style="font-size:13.5px">${esc(prev?.text || '')}</textarea>
@@ -68,7 +73,7 @@ function submitModal(post) {
         <div class="error"></div>
       </div>
       <div class="field"><span class="label">Archivos de código <span class="hint">solo .java y .py</span></span>${dropzoneHTML(LIMITS.studentExt)}</div>`,
-    footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-send data-loading="Enviando…">${icon('send')}${prev ? 'Reemplazar entrega' : 'Enviar entrega'}</button>`,
+    footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-send data-loading="Enviando…">${icon('send')}${returned ? 'Reenviar entrega corregida' : prev ? 'Reemplazar entrega' : 'Enviar entrega'}</button>`,
     onMount(el, m) {
       const ta = el.querySelector('#sb-text');
       const count = () => { el.querySelector('#sb-count').textContent = `${ta.value.length.toLocaleString('es-CO')} / ${LIMITS.maxTextChars.toLocaleString('es-CO')}`; };
@@ -92,10 +97,11 @@ function submitModal(post) {
           try {
             await ctx.B.submit({
               postId: post.id, classId: post.classId, ownerId: c?.ownerId || '', studentId: S.user.uid, studentName: p.fullName, studentCode: p.studentCode,
-              text: ta.value.trim(), links, files: files.map(({ name, size, content }) => ({ name, size: size || content.length, content })), late: !!late
+              text: ta.value.trim(), links, files: files.map(({ name, size, content }) => ({ name, size: size || content.length, content })), late: !!late,
+              ...(prev?.returnCount ? { returnCount: prev.returnCount, lastReturnNote: prev.returnNote || prev.lastReturnNote || '' } : {})
             });
-            await ctx.B.addNotifications([{ userId: c?.ownerId || 'teacher', fromUid: S.user.uid, type: 'submission', title: `Nueva entrega · ${p.fullName}`, message: `${post.title} (${c?.name || ''})`, link: `#/tarea/${post.id}`, classId: post.classId }]).catch(() => {});
-            ui.toast(prev ? 'Entrega actualizada' : 'Entrega enviada', 'success', 'El docente fue notificado.');
+            await ctx.B.addNotifications([{ userId: c?.ownerId || 'teacher', fromUid: S.user.uid, type: 'submission', title: `${returned ? 'Entrega corregida' : 'Nueva entrega'} · ${p.fullName}`, message: `${post.title} (${c?.name || ''})`, link: `#/tarea/${post.id}`, classId: post.classId }]).catch(() => {});
+            ui.toast(returned ? 'Corrección enviada' : prev ? 'Entrega actualizada' : 'Entrega enviada', 'success', 'El docente fue notificado.');
             m.close();
           } catch (er) { ui.toast('No se pudo enviar', 'error', errMsg(er)); }
         });
@@ -350,8 +356,8 @@ function grades(el) {
               <td class="who-cell"><b>${esc(t.title)}</b><div class="muted" style="font-size:12px">${t.dueAt ? 'Límite: ' + fmtDate(t.dueAt) : 'Sin fecha límite'}</div></td>
               <td data-label="Estado"><span class="badge ${st.cls}">${st.label}</span></td>
               <td data-label="Nota">${gradePill(s?.grade)}</td>
-              <td data-label="Retroalimentación" style="max-width:320px;font-size:13px;color:var(--text-2)">${esc(s?.feedback || '—')}</td>
-              <td class="actions-cell"><div class="actions">${s?.grade != null ? `<button class="btn btn-sm" data-view="${t.id}">${icon('eye')}Detalle</button>` : c.archived ? '' : `<button class="btn btn-sm ${s?.submittedAt ? '' : 'btn-primary'}" data-view="${t.id}">${icon(s?.submittedAt ? 'edit' : 'upload')}${s?.submittedAt ? 'Editar' : 'Entregar'}</button>`}</div></td>
+              <td data-label="Retroalimentación" style="max-width:320px;font-size:13px;color:var(--text-2)">${isReturned(s) ? `<b style="color:var(--warning)">Por corregir:</b> ${esc(s.returnNote || '')}` : esc(s?.feedback || '—')}</td>
+              <td class="actions-cell"><div class="actions">${s?.grade != null ? `<button class="btn btn-sm" data-view="${t.id}">${icon('eye')}Detalle</button>` : c.archived ? '' : isReturned(s) ? `<button class="btn btn-sm btn-primary" data-view="${t.id}">${icon('undo')}Corregir</button>` : `<button class="btn btn-sm ${s?.submittedAt ? '' : 'btn-primary'}" data-view="${t.id}">${icon(s?.submittedAt ? 'edit' : 'upload')}${s?.submittedAt ? 'Editar' : 'Entregar'}</button>`}</div></td>
             </tr>`;
           }).join('')}</tbody></table></div>` : '<p class="muted">Esta clase aún no tiene tareas.</p>'}
       </div>`;

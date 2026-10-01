@@ -926,3 +926,23 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .drive-viewer .dv-loading .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
 .help-steps { margin: 0; padding-left: 20px; display: grid; gap: 10px; font-size: 14px; color: var(--text-2); }
 @media (max-width: 720px) { .drive-viewer { height: 68vh; } }
+
+/* ---------- Devolución de entregas ---------- */
+.btn-warn { background: var(--warning); color: #1a1205; border-color: transparent; font-weight: 600; }
+.btn-warn:hover { filter: brightness(1.06); }
+.btn-warn-soft { background: var(--warning-soft); color: var(--warning); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
+.btn-warn-soft:hover { background: color-mix(in srgb, var(--warning) 22%, transparent); }
+.btn-block { width: 100%; justify-content: center; }
+.return-box { display: grid; gap: 10px; }
+.return-form { display: grid; gap: 12px; padding: 14px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--warning) 45%, transparent); background: color-mix(in srgb, var(--warning-soft) 55%, transparent); animation: fadeUpRet .25s ease; }
+.return-note { margin: 0 0 4px; }
+.return-note b { font-weight: 650; }
+.return-note small { display: block; margin-top: 6px; color: var(--text-2); font-size: 12.5px; }
+.rn-text { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; color: var(--text); }
+.prev-return { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+.prev-return summary { cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--text-2); font-weight: 600; }
+.prev-return summary svg { width: 15px; height: 15px; }
+.post .return-note { margin: 4px 0 12px; }
+@keyframes fadeUpRet { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .return-form { animation: none; } }
+@media (max-width: 480px) { .modal-foot { flex-wrap: wrap; } .modal-foot > .btn, .modal-foot > a.btn { flex: 1 1 140px; min-width: 0; justify-content: center; } }

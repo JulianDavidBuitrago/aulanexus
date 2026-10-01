@@ -219,6 +219,12 @@ export function createBackend() {
     grade: (g) => setDoc(doc(db, 'submissions', `${g.postId}_${g.studentId}`), {
       ...g, status: 'calificado', gradedAt: serverTimestamp()
     }, { merge: true }),
+    // Devolver una entrega: queda sin nota y sin fecha de entrega para que el estudiante la corrija y la reenvíe
+    returnSubmission: (r) => setDoc(doc(db, 'submissions', `${r.postId}_${r.studentId}`), {
+      ownerId: r.ownerId, status: 'devuelto', grade: null, gradedAt: null, submittedAt: null,
+      prevSubmittedAt: r.prevSubmittedAt || null, returnNote: r.returnNote, returnDueAt: r.returnDueAt || null,
+      returnCount: r.returnCount, returnedAt: serverTimestamp()
+    }, { merge: true }),
 
     // ---------- Notificaciones ----------
     watchNotifications: (key, cb) => onSnapshot(

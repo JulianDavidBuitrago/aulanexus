@@ -361,6 +361,15 @@ export function createBackend() {
       db.submissions[id] = { id, ...(db.submissions[id] || {}), ...clone(g), status: 'calificado', gradedAt: Date.now() };
       commit();
     },
+    async returnSubmission(r) {
+      await wait(450);
+      const id = `${r.postId}_${r.studentId}`;
+      const cur = db.submissions[id];
+      if (!cur || (db.classes[cur.classId]?.ownerId !== current?.uid && current?.uid !== ADMIN_UID)) throw err('permission-denied');
+      Object.assign(cur, { status: 'devuelto', grade: null, gradedAt: null, submittedAt: null, prevSubmittedAt: r.prevSubmittedAt || null,
+        returnNote: r.returnNote, returnDueAt: r.returnDueAt || null, returnCount: r.returnCount, returnedAt: Date.now() });
+      commit();
+    },
 
     watchNotifications: (key, cb) => watch(() => values('notifications').filter((n) => n.userId === key).sort((a, b) => b.createdAt - a.createdAt).slice(0, 40), cb),
     async addNotifications(items) {
