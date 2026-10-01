@@ -122,12 +122,12 @@ function startTeacher(user) {
   subs.push(B.watchPostsByOwner(user.uid, (l) => { S.posts = l; S.ready.posts = true; emit(); }));
   subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { S.pendingSubs = l; S.ready.pending = true; emit(); }, user.uid));
   if (S.isAdmin) subs.push(B.watchTeachers((l) => { S.teachers = l; S.ready.teachers = true; emit(); }));
-  subs.push(B.watchPractices('ownerId', user.uid, (l) => { S.practices = l; S.ready.practices = true; emit(); }));
+  subs.push(B.watchPractices('ownerId', user.uid, (l, e) => { S.practices = l; S.practicesError = e ? (e.code || e.message) : null; S.ready.practices = true; emit(); }));
   subs.push(B.watchVisits('ownerId', user.uid, (l) => { S.visits = l; S.ready.visits = true; emit(); }));
 }
 function startStudent(user) {
   subs.push(ctx.B.watchSubmissionsBy('studentId', user.uid, (l) => { S.mySubs = l; S.ready.subs = true; emit(); }));
-  subs.push(ctx.B.watchPractices('studentId', user.uid, (l) => { S.practices = l; S.ready.practices = true; emit(); }));
+  subs.push(ctx.B.watchPractices('studentId', user.uid, (l, e) => { S.practices = l; S.practicesError = e ? (e.code || e.message) : null; S.ready.practices = true; emit(); }));
   subs.push(ctx.B.watchVisits('studentId', user.uid, (l) => { S.visits = l; S.ready.visits = true; emit(); }));
 }
 

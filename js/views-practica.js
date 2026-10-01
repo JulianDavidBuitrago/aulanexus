@@ -30,6 +30,7 @@ const nextVisit = (pid) => visitsOf(pid).find((v) => v.status === 'programada' &
 const docBadge = (st, prefix = '') => { const d = DOC_STATUS[st || 'borrador']; return `<span class="badge ${d.cls}">${icon(d.icon)}${prefix}${d.label}</span>`; };
 const bar = (pct) => `<div class="pr-bar" title="${pct}%"><i style="width:${pct}%"></i></div>`;
 const fmtVisit = (v) => `${fmtDate(v.date)}`;
+const loadError = () => (S.practicesError ? `<div class="callout warn">${icon('alert')}<div><b>No se pudieron cargar las prácticas.</b> ${/permission/i.test(S.practicesError) ? 'Firestore negó el acceso: publique de nuevo el archivo <span class="mono">firestore.rules</span> (README, paso A.5) y recargue con Ctrl + F5.' : `Detalle: ${esc(S.practicesError)}`}</div></div>` : '');
 const docOf = (pr, key) => (key === 'proposal' ? pr.proposal || emptyProposal() : pr.final);
 
 // Datos del estudiante actualizados (si cambió su perfil) para documentos y fichas
@@ -114,6 +115,7 @@ function practicesView(el) {
     ]);
     if (tab === 'cal') { cal.render(); return; }
     if (!S.ready.practices) return;
+    if (S.practicesError) { $('#pr-list').innerHTML = loadError(); return; }
     const terms = norm(q).split(/\s+/).filter(Boolean);
     const list = all
       .filter((p) => filter === 'all' || (p.status || 'activa') === filter)
@@ -147,7 +149,10 @@ function practiceCard(p) {
     </div>
     <div class="pr-card-foot">
       <span>${icon('calendar')}${nv ? `Próxima visita: <b>${fmtVisit(nv)}</b> · ${VISIT_MODES[nv.mode]?.short || ''}` : '<span class="muted">Sin visitas programadas</span>'}</span>
-      <a class="btn btn-sm" href="#/practica/${p.id}">${icon('arrowRight')}Abrir</a>
+      <span class="pr-card-btns">
+        ${p.final ? `<a class="btn btn-sm" href="#/practica/${p.id}/informe/ver" title="Ver el informe final">${icon('eye')}Ver informe</a><a class="btn btn-sm btn-primary" href="#/practica/${p.id}/informe" title="Editar el informe final">${icon('pen')}Editar informe</a>` : `<span class="muted" style="font-size:12px">Informe sin crear</span>`}
+        <a class="btn btn-sm" href="#/practica/${p.id}">${icon('arrowRight')}Abrir</a>
+      </span>
     </div>
   </article>`;
 }
@@ -491,7 +496,7 @@ function practiceDetail(el, id) {
   const hashTab = (location.hash.split('/')[3] || '').toLowerCase();
   let tab = TABS.some((t) => t[0] === hashTab) ? hashTab : 'resumen';
   let comments = [], files = [];
-  let editor = null, editorKey = null, view = 'edit';
+  let editor = null, editorKey = null, view = (location.hash.split('/')[4] || '') === 'ver' ? 'preview' : 'edit';
   let draft = null, dirty = false, saving = false, lastSaved = 0, saveTimer = null, seenStamp = null;
   let visMonth = new Date(); visMonth.setDate(1);
 
@@ -509,7 +514,7 @@ function practiceDetail(el, id) {
   const practice = () => { const p = practiceById(id); return p ? withStudent(p) : null; };
   const canEditDoc = (key) => {
     const p = practice(); if (!p) return false;
-    const st = (key === 'proposal' ? p.proposal?.status : p.final?.status) || 'borrador';
+    const st = ((editorKey === key && draft) ? draft.status : (key === 'proposal' ? p.proposal?.status : p.final?.status)) || 'borrador';
     if (teacher) return st !== 'aprobado';
     return (p.status || 'activa') === 'activa' && (st === 'borrador' || st === 'correcciones');
   };
@@ -627,7 +632,8 @@ function practiceDetail(el, id) {
     const st = d.status || 'borrador';
     const pct = key === 'proposal' ? proposalProgress(d) : finalProgress(d);
     const tActs = teacher ? `
-      ${st !== 'aprobado' ? `<button class="btn btn-sm btn-warn-soft" data-dact="changes">${icon('undo')}Solicitar correcciones</button><button class="btn btn-sm btn-success" data-dact="approve">${icon('fileCheck')}Marcar como correcto</button>` : `<button class="btn btn-sm" data-dact="reopen">${icon('restore')}Reabrir para cambios</button>`}`
+      ${st === 'aprobado' ? `<button class="btn btn-sm btn-primary" data-dact="reopen">${icon('pen')}Editar (reabrir)</button>` : ''}
+      ${st !== 'aprobado' ? `<button class="btn btn-sm btn-warn-soft" data-dact="changes">${icon('undo')}Solicitar correcciones</button><button class="btn btn-sm btn-success" data-dact="approve">${icon('fileCheck')}Marcar como correcto</button>` : ''}`
       : `${st === 'borrador' || st === 'correcciones' ? `<button class="btn btn-sm btn-primary" data-dact="submit">${icon('send')}Enviar a revisión</button>` : st === 'enviado' ? `<button class="btn btn-sm" data-dact="withdraw">${icon('pen')}Retirar envío para editar</button>` : ''}`;
     const msg = {
       enviado: teacher ? 'El estudiante envió el documento: revíselo, comente y márquelo como correcto o solicite correcciones.' : 'Enviado a su docente. Mientras lo revisa, la edición está bloqueada.',
@@ -637,7 +643,7 @@ function practiceDetail(el, id) {
     return `<div class="doc-bar">
       <div class="doc-bar-l"><h2>${icon(key === 'proposal' ? 'fileText' : 'fileCheck')}${DOC_NAMES[key]}</h2>${docBadge(st)}<span class="doc-pct">${bar(pct)}<small>${pct}%</small></span><span class="save-state" data-save-state></span></div>
       <div class="doc-bar-r">
-        <div class="segmented seg-sm" data-view><button type="button" class="${view === 'edit' ? 'active' : ''}" data-v="edit">${icon('pen')}Editar</button><button type="button" class="${view === 'preview' ? 'active' : ''}" data-v="preview">${icon('eye')}Vista previa</button></div>
+        <div class="segmented seg-sm" data-view><button type="button" class="${view === 'edit' ? 'active' : ''}" data-v="edit">${icon('pen')}${canEditDoc(key) ? 'Editar' : 'Ver contenido'}</button><button type="button" class="${view === 'preview' ? 'active' : ''}" data-v="preview">${icon('eye')}Vista previa</button></div>
         <button class="btn btn-sm" data-dact="word" data-loading="Generando…">${icon('download')}Word</button>
         ${tActs}
       </div>
@@ -793,7 +799,7 @@ function practiceDetail(el, id) {
         await notifyStudent(p, `${name} aprobado`, `Su docente marcó ${name.toLowerCase()} como correcto. Ya puede descargarlo en Word.`, tabName);
         ui.toast('Documento aprobado', 'success', `Se notificó a ${p.studentName}.`);
       }
-      if (act === 'reopen') { await setDocStatus(key, 'correcciones', { approvedAt: null }); ui.toast('Documento reabierto', 'info'); }
+      if (act === 'reopen') { await setDocStatus(key, 'correcciones', { approvedAt: null }); view = 'edit'; ui.toast('Documento reabierto', 'info', 'Ya puede editarlo; al terminar, márquelo de nuevo como correcto.'); }
       if (act === 'changes') { changesModal(key); return; }
       mountDoc(key);
     } catch (er) { ui.toast('No se pudo completar la acción', 'error', errMsg(er)); }
@@ -918,7 +924,7 @@ function practiceDetail(el, id) {
     const p = practice();
     if (!p) {
       if (!S.ready.practices) { $('#pd-body').innerHTML = `<div class="panel">${skeletonLines(3)}</div>`; return; }
-      $('#pd-body').innerHTML = `<div class="panel">${empty('briefcase', 'Práctica no encontrada', 'Es posible que haya sido eliminada.')}</div>`; return;
+      $('#pd-body').innerHTML = S.practicesError ? loadError() : `<div class="panel">${empty('briefcase', 'Práctica no encontrada', 'Es posible que haya sido eliminada.')}</div>`; return;
     }
     const sig = JSON.stringify([p.studentName, p.company?.name, p.status, p.studentPhone, p.studentEmail]);
     if (sig !== heroSig) { heroSig = sig; paintHero(); }

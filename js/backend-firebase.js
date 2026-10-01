@@ -218,7 +218,7 @@ export function createBackend() {
 
     // ---------- Prácticas empresariales ----------
     // field: 'ownerId' (docente) o 'studentId' (estudiante)
-    watchPractices: (field, value, cb) => onSnapshot(query(collection(db, 'practices'), where(field, '==', value)), (qs) => cb(qs.docs.map(plainPractice)), (e) => { fail(e); cb([]); }),
+    watchPractices: (field, value, cb) => onSnapshot(query(collection(db, 'practices'), where(field, '==', value)), (qs) => cb(qs.docs.map(plainPractice), null), (e) => { fail(e); cb([], e); }),
     async createPractice(p) {
       const ref = await addDoc(collection(db, 'practices'), { ...packArr(p), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       return ref.id;

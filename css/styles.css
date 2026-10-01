@@ -1358,3 +1358,4 @@ textarea.mono-soft { font-family: var(--mono); font-size: 12.5px; }
 .pe-note .ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
 .pe-kv { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 @media (max-width: 520px) { .pe-kv { grid-template-columns: 1fr 1fr; } .pe-kv div { padding: 10px; } .pe-kv b { font-size: 13px; } }
+.pr-card-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
