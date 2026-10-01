@@ -3,7 +3,7 @@ import { S, ctx, classById, postsOf, tasksOf, selfRegOpen } from './state.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { LIMITS } from './firebase-config.js';
-import { esc, fmtDate, timeLeft, avg, fmtGrade, greeting, firstName, errMsg, DOC_TYPES, docLabel, isEmail } from './util.js';
+import { esc, fmtDate, timeLeft, avg, fmtGrade, greeting, firstName, errMsg, DOC_TYPES, docLabel, isEmail, isPhone, normPhone, fmtPhone } from './util.js';
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
   dropzoneHTML, bindDropzone, taskStatus, codeViewer, bindCodeViewer, fileItems, patchFeed, subLinksBlock
@@ -168,6 +168,7 @@ function home(el) {
       </div>
       <div class="hero-actions"><a class="btn" href="#/calificaciones">${icon('award')}Mis notas</a><a class="btn btn-primary" href="#/clases">${icon('book')}Mis clases</a></div>
     </section>
+    ${S.profile.phone ? '' : `<div class="callout warn">${icon('phone')}<div><b>Registre su número de celular.</b> Su docente lo necesita para contactarlo en caso necesario. <a href="#/perfil">Completar en Mi perfil</a></div></div>`}
     <section class="stats" id="h-stats"></section>
     <section class="grid-2">
       <div class="panel"><div class="panel-head"><h2>${icon('zap')}Novedades</h2></div><div class="feed" id="h-feed">${skeletonLines(3)}</div></div>
@@ -386,6 +387,7 @@ function profile(el) {
         <div class="field span-2"><label for="pf-code">Código de estudiante</label><div class="input-wrap">${icon('hash')}<input class="input mono" id="pf-code" value="${esc(p.studentCode)}"></div><div class="error"></div></div>
         <div class="field"><label for="pf-dt">Tipo de documento</label><select class="input" id="pf-dt">${DOC_TYPES.map(([v, l]) => `<option value="${v}" ${v === p.docType ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="field"><label for="pf-dn">Número de documento</label><div class="input-wrap">${icon('idcard')}<input class="input mono" id="pf-dn" value="${esc(p.docNumber)}"></div><div class="error"></div></div>
+        <div class="field span-2"><label for="pf-phone">Número de celular</label><div class="input-wrap">${icon('phone')}<input class="input mono" id="pf-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="3001234567" value="${esc(p.phone || '')}"></div><div class="error"></div></div>
         <div class="span-2" style="display:flex;justify-content:flex-end;gap:10px"><button class="btn" type="reset">Descartar</button><button class="btn btn-primary" type="submit" data-loading="Guardando…">${icon('check')}Guardar cambios</button></div>
       </form>
     </div>
@@ -428,10 +430,12 @@ function profile(el) {
     if (!/^[A-Za-z0-9-]{4,20}$/.test(code)) { ui.fieldError($('#pf-code'), 'Código inválido.'); ok = false; }
     const pattern = ['PA', 'PPT', 'CE'].includes(dt) ? /^[A-Za-z0-9]{5,20}$/ : /^\d{5,15}$/;
     if (!pattern.test(dn)) { ui.fieldError($('#pf-dn'), 'Número de documento inválido.'); ok = false; }
+    const phone = normPhone($('#pf-phone').value);
+    if (!isPhone(phone)) { ui.fieldError($('#pf-phone'), 'Ingrese un celular válido (10 dígitos, p. ej. 3001234567).'); ok = false; }
     if (!ok) return;
     ui.withLoading(pf.querySelector('[type=submit]'), async () => {
       try {
-        await ctx.B.updateProfile(S.user.uid, { fullName: name, studentCode: code, docType: dt, docNumber: dn }, S.profile);
+        await ctx.B.updateProfile(S.user.uid, { fullName: name, studentCode: code, docType: dt, docNumber: dn, phone }, S.profile);
         ui.toast('Perfil actualizado', 'success', 'Sus datos se guardaron correctamente.');
       } catch (er) { ui.toast('No se pudo guardar', 'error', errMsg(er)); }
     });
@@ -473,7 +477,7 @@ function profile(el) {
     const pr = S.profile;
     $('#pf-hero').innerHTML = `${avatar(pr.fullName, 'lg', S.user.uid)}
       <div style="min-width:0"><span class="eyebrow">${icon('grad')}Estudiante · ${esc(pr.studentCode)}</span><h1 style="font-size:clamp(22px,3vw,32px)">${esc(pr.fullName)}</h1>
-      <div class="hero-meta"><span>${icon('idcard')}${esc(docLabel(pr.docType))} ${esc(pr.docNumber)}</span><span>${icon('mail')}${esc(S.user.email)}</span><span>${icon('book')}${(pr.classIds || []).length} clases</span></div></div>`;
+      <div class="hero-meta"><span>${icon('idcard')}${esc(docLabel(pr.docType))} ${esc(pr.docNumber)}</span><span>${icon('mail')}${esc(S.user.email)}</span>${pr.phone ? `<span>${icon('phone')}${esc(fmtPhone(pr.phone))}</span>` : ''}<span>${icon('book')}${(pr.classIds || []).length} clases</span></div></div>`;
   }
   update();
   return { update };

@@ -61,7 +61,7 @@ export function createBackend() {
         b.set(doc(db, 'users', uid), {
           uid, role: 'student',
           fullName: d.fullName, studentCode: d.studentCode, docType: d.docType, docNumber: d.docNumber,
-          email: d.email.trim().toLowerCase(), classIds: d.classIds, mustChangePassword: false,
+          email: d.email.trim().toLowerCase(), phone: d.phone || '', classIds: d.classIds, mustChangePassword: false,
           createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         });
         await b.commit();
@@ -208,6 +208,29 @@ export function createBackend() {
     // Registro del último aviso por correo (no marca la publicación como editada)
     markEmailed: (id, n) => updateDoc(doc(db, 'posts', id), { lastEmailAt: serverTimestamp(), lastEmailCount: n }),
     idToken: () => auth.currentUser.getIdToken(),
+
+    // ---------- Prácticas empresariales ----------
+    // field: 'ownerId' (docente) o 'studentId' (estudiante)
+    watchPractices: (field, value, cb) => onSnapshot(query(collection(db, 'practices'), where(field, '==', value)), (qs) => cb(list(qs)), (e) => { fail(e); cb([]); }),
+    async createPractice(p) {
+      const ref = await addDoc(collection(db, 'practices'), { ...p, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      return ref.id;
+    },
+    updatePractice: (id, data) => updateDoc(doc(db, 'practices', id), { ...data, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.uid || null }),
+    deletePractice: (id) => deleteDoc(doc(db, 'practices', id)),
+    watchPracticeComments: (pid, cb) => onSnapshot(query(collection(db, 'practices', pid, 'comments'), orderBy('createdAt', 'asc')), (qs) => cb(list(qs)), (e) => { fail(e); cb([]); }),
+    addPracticeComment: (pid, c) => addDoc(collection(db, 'practices', pid, 'comments'), { ...c, createdAt: serverTimestamp() }),
+    updatePracticeComment: (pid, cid, data) => updateDoc(doc(db, 'practices', pid, 'comments', cid), data),
+    deletePracticeComment: (pid, cid) => deleteDoc(doc(db, 'practices', pid, 'comments', cid)),
+    // Figuras del informe (la consulta incluye ownerId o studentId para que las reglas puedan validarla)
+    watchPracticeFiles: (pid, field, uid, cb) => onSnapshot(query(collection(db, 'practiceFiles'), where('practiceId', '==', pid), where(field, '==', uid)), (qs) => cb(list(qs)), (e) => { fail(e); cb([]); }),
+    async addPracticeFile(f) { const ref = await addDoc(collection(db, 'practiceFiles'), { ...f, createdAt: serverTimestamp() }); return ref.id; },
+    deletePracticeFile: (id) => deleteDoc(doc(db, 'practiceFiles', id)),
+    // Visitas (calendario)
+    watchVisits: (field, value, cb) => onSnapshot(query(collection(db, 'visits'), where(field, '==', value)), (qs) => cb(list(qs)), (e) => { fail(e); cb([]); }),
+    async createVisit(v) { const ref = await addDoc(collection(db, 'visits'), { ...v, createdAt: serverTimestamp() }); return ref.id; },
+    updateVisit: (id, data) => updateDoc(doc(db, 'visits', id), { ...data, updatedAt: serverTimestamp() }),
+    deleteVisit: (id) => deleteDoc(doc(db, 'visits', id)),
 
     // ---------- Entregas / calificaciones ----------
     // ownerId: los docentes solo pueden consultar entregas de sus propias clases

@@ -14,6 +14,8 @@ export const S = {
   notifications: [],
   mySubs: [],          // (estudiante) mis entregas
   pendingSubs: [],     // (docente) entregas sin calificar de sus clases
+  practices: [],       // (docente) prácticas que asesora · (estudiante) sus prácticas
+  visits: [],          // visitas de seguimiento de prácticas
   ready: {}
 };
 

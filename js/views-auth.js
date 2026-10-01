@@ -2,7 +2,7 @@
 import { S, ctx } from './state.js';
 import { icon, LOGO } from './icons.js';
 import * as ui from './ui.js';
-import { esc, errMsg, isEmail, DOC_TYPES, CLASS_COLORS } from './util.js';
+import { esc, errMsg, isEmail, DOC_TYPES, CLASS_COLORS, isPhone, normPhone } from './util.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 import { APP, TEACHER_EMAIL } from './firebase-config.js';
 import { colorVar } from './components.js';
@@ -224,6 +224,11 @@ export function renderRegister(root) {
               <div class="input-wrap">${icon('mail')}<input class="input" id="r-email" type="email" autocomplete="email" placeholder="nombre@ucaldas.edu.co"></div>
               <div class="error"></div>
             </div>
+            <div class="field">
+              <label for="r-phone">Número de celular <span class="hint">para contactarlo cuando sea necesario</span></label>
+              <div class="input-wrap">${icon('phone')}<input class="input mono" id="r-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="3001234567"></div>
+              <div class="error"></div>
+            </div>
             ${passwordField({ id: 'r-pass', label: 'Contraseña', meter: true, generator: true, hint: 'Use el dado para generar una' })}
             ${passwordField({ id: 'r-pass2', label: 'Confirmar contraseña' })}
           </div>
@@ -304,6 +309,7 @@ export function renderRegister(root) {
       const em = $('#r-email').value.trim();
       if (!isEmail(em)) err('#r-email', 'Ingrese un correo válido.');
       else if (em.toLowerCase() === TEACHER_EMAIL.toLowerCase()) err('#r-email', 'Este correo corresponde a la cuenta docente.');
+      if (!isPhone($('#r-phone').value)) err('#r-phone', 'Ingrese un celular válido (10 dígitos, p. ej. 3001234567).');
       const a = $('#r-pass').value;
       const r = analyze(a, [$('#r-name').value, $('#r-email').value, $('#r-code').value, $('#r-docnum').value]);
       if (!r.valid) err('#r-pass', 'La contraseña no cumple los requisitos de seguridad.');
@@ -333,6 +339,7 @@ export function renderRegister(root) {
           docType: $('#r-doctype').value,
           docNumber: $('#r-docnum').value.trim().toUpperCase(),
           email: $('#r-email').value.trim().toLowerCase(),
+          phone: normPhone($('#r-phone').value),
           password: $('#r-pass').value,
           classIds: [...root.querySelectorAll('#r-classes input:checked')].map((i) => i.value)
         });
@@ -351,17 +358,40 @@ export function renderRegister(root) {
 
 // ---------------------------------------------------------------------
 // Pantalla simple con mensaje (cuenta deshabilitada, sin perfil, etc.)
-export function renderNotice(root, { icon: ic = 'info', title, text }) {
+export function renderNotice(root, { icon: ic = 'info', title, text, diag = false }) {
+  const u = S.user || {};
+  const diagBox = diag ? `
+      <details class="diag-box">
+        <summary>${icon('info')}Datos para el administrador</summary>
+        <div class="cred-box" style="margin-top:10px">
+          <div><span>Correo con el que ingresó</span><b>${esc(u.email || '—')}</b></div>
+          <div><span>UID</span><b class="mono" style="font-size:12px;overflow-wrap:anywhere">${esc(u.uid || '—')}</b></div>
+        </div>
+        <ul class="diag-list">
+          <li>Si esta debería ser la cuenta del <b>administrador</b>: el correo debe ser idéntico al de <span class="mono">TEACHER_EMAIL</span> en <span class="mono">firebase-config.js</span> y al de la función <span class="mono">isAdmin()</span> en <span class="mono">firestore.rules</span>.</li>
+          <li>Si la cuenta se creó a mano en <i>Firebase → Authentication</i>: elimínela allí y créela desde AulaNexus (Administración o Inscripciones).</li>
+          <li>Si es un estudiante con registro libre: elimine el usuario en Authentication y pídale que se registre de nuevo.</li>
+        </ul>
+        <button class="btn btn-sm" type="button" id="gate-copy">${icon('copy')}Copiar datos</button>
+      </details>` : '';
   root.innerHTML = `
   <div class="gate">
     <div class="auth-top">${ui.themeButton()}</div>
     <div class="auth-card card glow-border gate-card">
       <a class="brand" href="#/" style="padding:0 0 18px">${LOGO}<div><b>${APP.name}</b><small>${esc(APP.institution)}</small></div></a>
       <div class="empty" style="padding:6px 0 0"><div class="em-ic">${icon(ic)}</div><b>${esc(title)}</b><p>${esc(text)}</p>
-        <button class="btn" id="gate-out">${icon('logout')}Cerrar sesión</button></div>
+        ${diagBox}
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          ${diag ? `<button class="btn" id="gate-retry">${icon('restore')}Reintentar</button>` : ''}
+          <button class="btn" id="gate-out">${icon('logout')}Cerrar sesión</button>
+        </div></div>
     </div>
   </div>`;
   root.querySelector('#gate-out').addEventListener('click', () => ctx.B.logout());
+  root.querySelector('#gate-retry')?.addEventListener('click', () => location.reload());
+  root.querySelector('#gate-copy')?.addEventListener('click', () => {
+    navigator.clipboard?.writeText(`AulaNexus · ${title}\nCorreo: ${u.email || ''}\nUID: ${u.uid || ''}`).then(() => ui.toast('Datos copiados', 'success'), () => {});
+  });
   return {};
 }
 

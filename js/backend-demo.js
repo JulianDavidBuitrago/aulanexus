@@ -4,8 +4,9 @@
 // =====================================================================
 import { TEACHER_EMAIL, TEACHER_NAME } from './firebase-config.js';
 import { codeKey, docKey, uid as newId } from './util.js';
+import { emptyProposal, defaultFinal, currentPeriod } from './practica-model.js';
 
-const KEY = 'aulanexus-demo-v4';
+const KEY = 'aulanexus-demo-v5';
 const SESSION = 'aulanexus-demo-session';
 export const DEMO_ACCOUNTS = {
   admin: { email: TEACHER_EMAIL, password: 'Docente#2026' },
@@ -105,6 +106,7 @@ function seed() {
   const now = Date.now();
   const H = 3.6e6, D = 24 * H;
   const db = { accounts: {}, users: {}, classes: {}, posts: {}, submissions: {}, notifications: {}, uniques: {},
+    practices: {}, practiceComments: {}, practiceFiles: {}, visits: {},
     settings: { allowSelfRegistration: true, schemaVersion: 2 } };
 
   db.accounts[TEACHER_EMAIL] = { uid: ADMIN_UID, password: DEMO_ACCOUNTS.admin.password };
@@ -131,8 +133,9 @@ function seed() {
     ['s-laura', 'Laura Sofía Valencia Mejía', '1702310189', 'CC', '1053870011', 'laura.valencia@ucaldas.edu.co', ['c-ihm', 'c-req']],
     ['s-camilo', 'Camilo Andrés Zuluaga Toro', '1702310201', 'CC', '1053890345', 'camilo.zuluaga@ucaldas.edu.co', ['c-ihm', 'c-saw', 'c-req', 'c-bd']]
   ];
+  const phones = ['3104567812', '3157894521', '3016549870', '3208765432', '3112233445', '3185566778', '3009988776', ''];
   people.forEach(([id, fullName, studentCode, docType, docNumber, email, classIds], i) => {
-    db.users[id] = { id, uid: id, role: 'student', fullName, studentCode, docType, docNumber, email, classIds, mustChangePassword: false, createdAt: now - (40 - i) * D, updatedAt: now - (40 - i) * D };
+    db.users[id] = { id, uid: id, role: 'student', fullName, studentCode, docType, docNumber, email, phone: phones[i] || '', classIds, mustChangePassword: false, createdAt: now - (40 - i) * D, updatedAt: now - (40 - i) * D };
     db.accounts[email] = { uid: id, password: DEMO_ACCOUNTS.student.password };
     db.uniques[codeKey(studentCode)] = { uid: id };
     db.uniques[docKey(docType, docNumber)] = { uid: id };
@@ -182,12 +185,73 @@ function seed() {
   notif('s-valentina', 'post', 'Nueva tarea en Seguridad en Aplicaciones Web', 'Reto 2 · Análisis de inyección SQL', '#/clase/c-saw', now - 1 * D);
   notif(ADMIN_UID, 'submission', 'Nueva entrega · Camilo Andrés Zuluaga Toro', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 0.5 * D);
   notif(ADMIN_UID, 'submission', 'Nueva entrega · Valentina Ríos Gómez', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 1.5 * D, true);
+  // ---------- Prácticas empresariales (ejemplo ficticio) ----------
+  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const company = {
+    name: 'Andes Software S.A.S.', nit: '900.456.789-1', sector: 'Desarrollo de software', city: 'Manizales', address: 'Carrera 23 # 65-12, Edificio Cumbre',
+    phone: '6068901234', website: 'www.andessoftware.co', area: 'Fábrica de software',
+    contactName: 'María Fernanda Ruiz Gómez', contactRole: 'Líder de desarrollo', contactPhone: '3124567890', contactEmail: 'mfruiz@andessoftware.co',
+    startDate: iso(now - 58 * D), endDate: iso(now + 60 * D), paid: true, hours: '40', modality: 'presencial', schedule: 'Lunes a viernes · 8:00 – 17:00'
+  };
+  const proposal = {
+    ...emptyProposal(), status: 'enviado', fillDate: iso(now - 50 * D), submittedAt: now - 3 * D,
+    description: 'La práctica se desarrollará en el área de **Fábrica de software** de Andes Software S.A.S., encargada de construir, probar y mantener las aplicaciones web y móviles que la empresa ofrece a sus clientes del sector comercio.\nDurante la práctica, la estudiante participará en el **desarrollo, prueba y documentación** del módulo de facturación electrónica de la plataforma de ventas de la empresa.',
+    needs: [
+      { a: 'Pruebas de regresión manuales y repetitivas', b: 'Cada entrega demora dos días adicionales y se escapan errores a producción', c: 'Automatización de pruebas de extremo a extremo con Playwright' },
+      { a: 'Documentación técnica desactualizada', b: 'Curva de aprendizaje alta para el personal nuevo', c: 'Guía técnica y funcional estandarizada del módulo' }
+    ],
+    expected: 'Un módulo de facturación electrónica probado, documentado e integrado con la plataforma de ventas, listo para su salida a producción.',
+    objective: 'Desarrollar el módulo de facturación electrónica de la plataforma de ventas de **Andes Software S.A.S.**, mediante un proceso iterativo de construcción y pruebas automatizadas, para reducir el tiempo de emisión de facturas y los errores en producción.',
+    specific: [
+      'Especificar los requisitos funcionales y no funcionales del módulo con los interesados, para establecer una línea base validada.',
+      'Diseñar la arquitectura y el modelo de datos del módulo, conforme a la normativa de facturación electrónica vigente.',
+      'Implementar el módulo mediante iteraciones de dos semanas, integrándolo con la plataforma de ventas.',
+      'Validar el módulo con pruebas automatizadas y de aceptación, y documentar la solución para su mantenimiento.'
+    ],
+    methodIntro: 'La práctica se desarrollará con un enfoque **iterativo e incremental**, articulado al ciclo de trabajo de la Fábrica de software, durante diecisiete semanas.',
+    phases: [
+      { title: 'Inducción y levantamiento de requisitos (semanas 1 a 3)', oes: 'OE1', text: 'Reconocimiento de la plataforma de ventas, entrevistas con los interesados y especificación de requisitos.' },
+      { title: 'Diseño (semanas 4 y 5)', oes: 'OE2', text: 'Definición de la arquitectura, el modelo de datos y los prototipos de interfaz.' },
+      { title: 'Construcción iterativa (semanas 6 a 14)', oes: 'OE3', text: 'Desarrollo por sprints de dos semanas con revisión del líder de desarrollo.' },
+      { title: 'Validación, documentación y cierre (semanas 15 a 17)', oes: 'OE4', text: 'Pruebas automatizadas, pruebas de aceptación y entrega de la documentación.' }
+    ],
+    activities: [
+      { oe: 'OE1', act: 'Realizar la inducción y levantar los requisitos del módulo.', ent: 'Documento de especificación de requisitos', ini: iso(now - 58 * D), fin: iso(now - 40 * D) },
+      { oe: 'OE2', act: 'Diseñar la arquitectura y el modelo de datos.', ent: 'Documento de arquitectura; modelo entidad-relación', ini: iso(now - 39 * D), fin: iso(now - 26 * D) },
+      { oe: 'OE3', act: 'Construir el módulo por sprints.', ent: 'Código fuente versionado; incrementos funcionales', ini: iso(now - 25 * D), fin: iso(now + 38 * D) },
+      { oe: 'OE4', act: 'Validar, documentar y entregar el módulo.', ent: 'Informe de pruebas; manual técnico', ini: iso(now + 39 * D), fin: iso(now + 60 * D) }
+    ]
+  };
+  const final = defaultFinal({ teacher: TEACHER_NAME, company, proposal });
+  final.cover.title = 'Módulo de facturación electrónica para la plataforma de ventas de Andes Software S.A.S.';
+  final.chapters[0].blocks[0].text = 'La facturación electrónica es hoy una obligación tributaria para la mayoría de las empresas en Colombia y un factor clave en la eficiencia de sus procesos comerciales.\nEste informe presenta el trabajo realizado durante la práctica empresarial en Andes Software S.A.S.';
+  const prA = 'pr-valentina';
+  db.practices[prA] = {
+    id: prA, ownerId: ADMIN_UID, ownerName: TEACHER_NAME, studentId: 's-valentina', studentName: 'Valentina Ríos Gómez', studentCode: '1702310045',
+    studentDoc: '1053845120', studentDocType: 'CC', studentEmail: 'valentina.rios@ucaldas.edu.co', studentPhone: '3104567812',
+    period: currentPeriod(), status: 'activa', company, proposal, final, createdAt: now - 60 * D, updatedAt: now - 3 * D
+  };
+  db.practiceComments['pc-1'] = { id: 'pc-1', practiceId: prA, doc: 'proposal', section: 'Objetivos específicos', authorId: ADMIN_UID, authorName: TEACHER_NAME, role: 'teacher', text: 'Los objetivos están bien formulados. En el OE4 separe la validación de la documentación: son dos logros distintos.', resolved: false, createdAt: now - 2 * D };
+  db.practiceComments['pc-2'] = { id: 'pc-2', practiceId: prA, doc: 'proposal', section: 'Actividades', authorId: 's-valentina', authorName: 'Valentina Ríos Gómez', role: 'student', text: 'Entendido, profesor. Lo ajusto y vuelvo a enviar la propuesta.', resolved: false, createdAt: now - 1.5 * D };
+  const at = (days, h) => { const d = new Date(now + days * D); d.setHours(h, 0, 0, 0); return d.getTime(); };
+  db.visits['v-1'] = { id: 'v-1', practiceId: prA, ownerId: ADMIN_UID, studentId: 's-valentina', date: at(-20, 10), duration: 60, mode: 'presencial', place: 'Carrera 23 # 65-12, Edificio Cumbre, piso 4', notes: 'Primera visita de seguimiento.', status: 'realizada',
+    acta: { responsible: 'María Fernanda Ruiz Gómez', development: 'La visita se realizó en las instalaciones de la empresa con la participación de la líder de desarrollo. Se verificó el avance en el levantamiento de requisitos y el diseño de la arquitectura del módulo.\nLa empresa manifiesta satisfacción con el desempeño de la estudiante. Se acuerda presentar el prototipo funcional en la próxima visita.', done: true, completedAt: at(-20, 12) }, createdAt: now - 25 * D };
+  db.visits['v-2'] = { id: 'v-2', practiceId: prA, ownerId: ADMIN_UID, studentId: 's-valentina', date: at(9, 15), duration: 45, mode: 'virtual', place: 'https://meet.google.com/abc-defg-hij', notes: 'Revisión del prototipo funcional.', status: 'programada', acta: { responsible: '', development: '', done: false }, createdAt: now - 1 * D };
+  db.practices['pr-santiago'] = {
+    id: 'pr-santiago', ownerId: ADMIN_UID, ownerName: TEACHER_NAME, studentId: 's-santiago', studentName: 'Santiago Marín López', studentCode: '1702310078',
+    studentDoc: '1053811234', studentDocType: 'CC', studentEmail: 'santiago.marin@ucaldas.edu.co', studentPhone: '3157894521',
+    period: currentPeriod(), status: 'activa', company: { name: 'Cooperativa Cafetera del Centro', city: 'Manizales', area: 'Tecnología', contactName: '', contactRole: '', contactPhone: '', contactEmail: '', startDate: iso(now - 10 * D), endDate: iso(now + 110 * D), paid: false },
+    proposal: emptyProposal(), final: null, createdAt: now - 12 * D, updatedAt: now - 12 * D
+  };
+  db.visits['v-3'] = { id: 'v-3', practiceId: 'pr-santiago', ownerId: ADMIN_UID, studentId: 's-santiago', date: at(3, 9), duration: 60, mode: 'presencial', place: 'Sede principal de la cooperativa', notes: 'Visita de inicio.', status: 'programada', acta: { responsible: '', development: '', done: false }, createdAt: now - 2 * D };
+
   return db;
 }
 
 export function createBackend() {
   let db;
   try { db = JSON.parse(store.get(KEY)) || seed(); } catch { db = seed(); }
+  for (const k of ['practices', 'practiceComments', 'practiceFiles', 'visits']) db[k] = db[k] || {};
   const watchers = new Set();
   let authCb = () => {};
   let current = null;
@@ -242,7 +306,7 @@ export function createBackend() {
       db.uniques[codeKey(d.studentCode)] = { uid };
       db.uniques[docKey(d.docType, d.docNumber)] = { uid };
       if (db.settings.allowSelfRegistration === false) throw err('app/registration-closed');
-      db.users[uid] = { id: uid, uid, role: 'student', fullName: d.fullName, studentCode: d.studentCode, docType: d.docType, docNumber: d.docNumber, email, classIds: d.classIds, mustChangePassword: false, createdAt: Date.now(), updatedAt: Date.now() };
+      db.users[uid] = { id: uid, uid, role: 'student', fullName: d.fullName, studentCode: d.studentCode, docType: d.docType, docNumber: d.docNumber, email, phone: d.phone || '', classIds: d.classIds, mustChangePassword: false, createdAt: Date.now(), updatedAt: Date.now() };
       commit();
       setSession({ uid, email });
     },
@@ -372,6 +436,41 @@ export function createBackend() {
         returnNote: r.returnNote, returnDueAt: r.returnDueAt || null, returnCount: r.returnCount, returnedAt: Date.now() });
       commit();
     },
+
+    // ---------- Prácticas empresariales ----------
+    watchPractices: (field, value, cb) => watch(() => values('practices').filter((p) => p[field] === value), cb),
+    async createPractice(p) {
+      await wait(); need();
+      if (p.studentId === current.uid) throw err('permission-denied');
+      const id = 'pr-' + newId();
+      db.practices[id] = { id, ...clone(p), createdAt: Date.now(), updatedAt: Date.now() };
+      commit(); return id;
+    },
+    async updatePractice(id, data) {
+      await wait(180); need();
+      const cur = db.practices[id];
+      if (!cur) throw err('permission-denied');
+      if (cur.studentId === current.uid) {
+        const allowed = ['company', 'proposal', 'final'];
+        if (Object.keys(data).some((k) => !allowed.includes(k)) || (cur.status || 'activa') !== 'activa') throw err('permission-denied');
+        for (const k of ['proposal', 'final']) if (k in data && cur[k]?.status === 'aprobado') throw err('permission-denied');
+        for (const k of ['proposal', 'final']) if (data[k]?.status === 'aprobado') throw err('permission-denied');
+      } else if (cur.ownerId !== current.uid && current.uid !== ADMIN_UID) throw err('permission-denied');
+      Object.assign(cur, clone(data), { updatedAt: Date.now(), updatedBy: current.uid });
+      commit();
+    },
+    async deletePractice(id) { await wait(); delete db.practices[id]; Object.values(db.visits).forEach((v) => { if (v.practiceId === id) delete db.visits[v.id]; }); commit(); },
+    watchPracticeComments: (pid, cb) => watch(() => values('practiceComments').filter((c) => c.practiceId === pid).sort((a, b) => a.createdAt - b.createdAt), cb),
+    async addPracticeComment(pid, c) { await wait(200); const id = 'pc-' + newId(); db.practiceComments[id] = { id, practiceId: pid, ...clone(c), createdAt: Date.now() }; commit(); return id; },
+    async updatePracticeComment(pid, cid, data) { await wait(150); if (db.practiceComments[cid]) { Object.assign(db.practiceComments[cid], clone(data)); commit(); } },
+    async deletePracticeComment(pid, cid) { await wait(150); delete db.practiceComments[cid]; commit(); },
+    watchPracticeFiles: (pid, field, uid, cb) => watch(() => values('practiceFiles').filter((f) => f.practiceId === pid), cb),
+    async addPracticeFile(f) { await wait(250); const id = 'pf-' + newId(); db.practiceFiles[id] = { id, ...clone(f), createdAt: Date.now() }; commit(); return id; },
+    async deletePracticeFile(id) { await wait(150); delete db.practiceFiles[id]; commit(); },
+    watchVisits: (field, value, cb) => watch(() => values('visits').filter((v) => v[field] === value), cb),
+    async createVisit(v) { await wait(); const id = 'v-' + newId(); db.visits[id] = { id, ...clone(v), createdAt: Date.now() }; commit(); return id; },
+    async updateVisit(id, data) { await wait(200); if (!db.visits[id]) throw err('not-found'); Object.assign(db.visits[id], clone(data), { updatedAt: Date.now() }); commit(); },
+    async deleteVisit(id) { await wait(150); delete db.visits[id]; commit(); },
 
     watchNotifications: (key, cb) => watch(() => values('notifications').filter((n) => n.userId === key).sort((a, b) => b.createdAt - a.createdAt).slice(0, 40), cb),
     async addNotifications(items) {

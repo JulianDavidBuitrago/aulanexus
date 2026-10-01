@@ -5,10 +5,11 @@
 import { S, ctx, myClasses, classById, selfRegOpen, byName } from './state.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
-import { esc, norm, errMsg, DOC_TYPES, initialPassword, validatePerson, normDocType, formatName } from './util.js';
+import { esc, norm, errMsg, DOC_TYPES, initialPassword, validatePerson, normDocType, formatName, normPhone, fmtPhone } from './util.js';
 import { colorVar, empty, avatar, showCredentials } from './components.js';
 import { TEACHER_EMAIL } from './firebase-config.js';
 import { downloadTemplate, parseRoster, exportResults } from './excel.js';
+import { studentSearchHTML, bindStudentSearch } from './student-search.js';
 
 export const routes = { inscripciones: enrollView };
 
@@ -71,6 +72,7 @@ async function processPerson(p, classIds) {
   if (a.kind === 'already') return { status: 'already', detail: 'Ya estaba inscrito en las clases seleccionadas' };
   if (a.kind === 'exists') {
     await ctx.B.joinClasses(a.student.uid, a.missing);
+    if (p.phone && !a.student.phone) await ctx.B.updateUser(a.student.uid, { phone: p.phone }).catch(() => {});
     await ctx.B.addNotifications([{ userId: a.student.uid, type: 'post', title: 'Nueva inscripción', message: `Fue inscrito en: ${a.missing.map((id) => classById(id)?.name).join(', ')}`, link: '#/clases' }]).catch(() => {});
     return { status: 'enrolled', detail: `Cuenta existente · inscrito en ${a.missing.length} clase(s)` };
   }
@@ -79,7 +81,7 @@ async function processPerson(p, classIds) {
   try {
     uid = await ctx.B.provisionAccount({
     password,
-    profile: { role: 'student', fullName: p.fullName, studentCode: p.studentCode, docType: p.docType, docNumber: p.docNumber, email: p.email, classIds }
+    profile: { role: 'student', fullName: p.fullName, studentCode: p.studentCode, docType: p.docType, docNumber: p.docNumber, email: p.email, phone: p.phone || '', classIds }
     });
   } catch (er) {
     // El correo existe pero no es estudiante (p. ej. un docente sin acceso de estudiante)
@@ -105,7 +107,7 @@ const badge = (k) => `<span class="badge ${STATUS[k][0]}">${STATUS[k][1]}</span>
 function enrollView(el, presetClass) {
   ui.setCrumb('Inscripciones', 'GESTIÓN DE ESTUDIANTES');
   const pre = presetClass ? [presetClass] : [];
-  let tab = 'single';
+  let tab = 'existing';
   let parsed = null;        // { rows, missing, fileName }
   let running = false;
 
@@ -123,11 +125,21 @@ function enrollView(el, presetClass) {
 
     <div>
       <div class="tabs" role="tablist">
-        <button class="active" data-tab="single">${icon('user')}Individual</button>
+        <button class="active" data-tab="existing">${icon('search')}Estudiante registrado</button>
+        <button data-tab="single">${icon('userPlus')}Nuevo estudiante</button>
         <button data-tab="bulk">${icon('sheet')}Carga masiva (Excel)</button>
       </div>
 
-      <div class="tab-panel" data-panel="single">
+      <div class="tab-panel" data-panel="existing">
+        <div class="panel">
+          <div class="panel-head"><h2>${icon('search')}Buscar estudiante ya registrado</h2></div>
+          <p class="muted" style="margin:-4px 0 14px;font-size:13.5px">Escriba el número de cédula o el nombre: los resultados se filtran mientras escribe. El estudiante conserva su cuenta y solo se agrega a las clases que elija.</p>
+          <div class="field"><span class="label">Agregar a</span><div id="ex-classes"></div><div class="error" id="ex-classes-err"></div></div>
+          ${studentSearchHTML('ex')}
+        </div>
+      </div>
+
+      <div class="tab-panel hidden" data-panel="single">
         <div class="panel">
           <div class="panel-head"><h2>${icon('userPlus')}Nuevo estudiante</h2></div>
           <form id="en-form" class="stack" style="gap:16px" novalidate>
@@ -137,6 +149,7 @@ function enrollView(el, presetClass) {
               <div class="field"><label for="en-email">Correo electrónico</label><div class="input-wrap">${icon('mail')}<input class="input" id="en-email" type="email" placeholder="nombre@ucaldas.edu.co" autocomplete="off"></div><div class="error"></div></div>
               <div class="field"><label for="en-dt">Tipo de documento</label><select class="input" id="en-dt">${DOC_TYPES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></div>
               <div class="field"><label for="en-dn">Número de documento</label><div class="input-wrap">${icon('idcard')}<input class="input mono" id="en-dn" placeholder="Sin puntos ni espacios" autocomplete="off"></div><div class="error"></div></div>
+              <div class="field"><label for="en-phone">Celular <span class="hint">opcional</span></label><div class="input-wrap">${icon('phone')}<input class="input mono" id="en-phone" type="tel" inputmode="tel" placeholder="3001234567" autocomplete="off"></div><div class="error"></div></div>
             </div>
             <div class="field"><span class="label">Inscribir en</span><div id="en-classes"></div><div class="error" id="en-classes-err"></div></div>
             <div class="callout" id="en-preview" style="font-size:13px">${icon('key')}<div>La contraseña inicial se genera automáticamente.</div></div>
@@ -186,6 +199,35 @@ function enrollView(el, presetClass) {
     el.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
   });
 
+  // ---- Estudiante registrado ----
+  const search = bindStudentSearch(el, 'ex', {
+    action(s) {
+      const sel = checked(el, 'ex-cls');
+      const own = sel.filter((id) => classById(id)?.ownerId === s.uid);
+      const missing = sel.filter((id) => !own.includes(id) && !(s.classIds || []).includes(id));
+      if (!sel.length) return { label: 'Agregar', icon: 'userPlus', cls: 'btn-primary' };
+      if (!missing.length) return { label: 'Ya inscrito', icon: 'check', cls: '', disabled: true, hint: own.length ? 'Es el docente de la clase seleccionada.' : 'Ya pertenece a las clases seleccionadas.' };
+      return { label: `Agregar${sel.length > 1 ? ` (${missing.length})` : ''}`, icon: 'userPlus', cls: 'btn-primary' };
+    },
+    async onPick(s, btn) {
+      const sel = checked(el, 'ex-cls');
+      const ce = $('#ex-classes-err');
+      ce.closest('.field').classList.toggle('invalid', !sel.length);
+      ce.textContent = sel.length ? '' : 'Seleccione primero la clase o clases.';
+      if (!sel.length) { $('#ex-classes').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      const missing = sel.filter((id) => classById(id)?.ownerId !== s.uid && !(s.classIds || []).includes(id));
+      if (!missing.length) return;
+      await ui.withLoading(btn, async () => {
+        try {
+          await ctx.B.joinClasses(s.uid, missing);
+          await ctx.B.addNotifications([{ userId: s.uid, type: 'post', title: 'Nueva inscripción', message: `Fue inscrito en: ${missing.map((id) => classById(id)?.name).join(', ')}`, link: '#/clases' }]).catch(() => {});
+          ui.toast('Estudiante agregado', 'success', `${s.fullName} → ${missing.map((id) => classById(id)?.name).join(', ')}`);
+        } catch (er) { ui.toast('No se pudo inscribir', 'error', errMsg(er)); }
+      });
+    }
+  });
+  el.addEventListener('change', (e) => { if (e.target.name === 'ex-cls') { $('#ex-classes-err').textContent = ''; $('#ex-classes-err').closest('.field').classList.remove('invalid'); search.refresh(); } });
+
   // ---- Individual ----
   const form = $('#en-form');
   const readForm = () => ({
@@ -193,7 +235,8 @@ function enrollView(el, presetClass) {
     studentCode: $('#en-code').value.trim().toUpperCase(),
     docType: $('#en-dt').value,
     docNumber: $('#en-dn').value.trim().replace(/[\s.]/g, '').toUpperCase(),
-    email: $('#en-email').value.trim().toLowerCase()
+    email: $('#en-email').value.trim().toLowerCase(),
+    phone: normPhone($('#en-phone').value)
   });
   const paintPreview = () => {
     const p = readForm();
@@ -218,7 +261,7 @@ function enrollView(el, presetClass) {
     const p = readForm();
     const classIds = checked(el, 'en-cls');
     const errs = validatePerson(p);
-    const map = { 'Nombre': '#en-name', 'Código': '#en-code', 'Número de documento': '#en-dn', 'Correo': '#en-email' };
+    const map = { 'Nombre': '#en-name', 'Código': '#en-code', 'Número de documento': '#en-dn', 'Correo': '#en-email', 'Celular': '#en-phone' };
     errs.forEach((m) => { const k = Object.keys(map).find((x) => m.startsWith(x) || m.includes(x.toLowerCase())); if (k) ui.fieldError($(map[k]), m); });
     const ce = $('#en-classes-err');
     ce.closest('.field').classList.toggle('invalid', !classIds.length);
@@ -367,14 +410,16 @@ function enrollView(el, presetClass) {
       <span class="rule-chip">${icon(regOpen ? 'users' : 'lock')}Registro libre: <b>${regOpen ? 'habilitado' : 'deshabilitado'}</b></span>`;
     if (!running) {
       // Conserva selección al refrescar
-      const keepA = checked(el, 'en-cls'), keepB = checked(el, 'bk-cls');
+      const keepA = checked(el, 'en-cls'), keepB = checked(el, 'bk-cls'), keepX = checked(el, 'ex-cls');
       const sigA = activeMine().map((c) => c.id).join();
       if ($('#en-classes').dataset.sig !== sigA) {
         $('#en-classes').innerHTML = classPicks('en-cls', keepA.length ? keepA : pre);
         $('#bk-classes').innerHTML = classPicks('bk-cls', keepB.length ? keepB : pre);
+        $('#ex-classes').innerHTML = classPicks('ex-cls', keepX.length ? keepX : pre);
         $('#en-classes').dataset.sig = sigA;
       }
     }
+    search.refresh();
     paintPreview();
   }
   update();

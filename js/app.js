@@ -11,17 +11,19 @@ import * as Teacher from './views-teacher.js';
 import * as Student from './views-student.js';
 import * as Admin from './views-admin.js';
 import * as Enroll from './views-enroll.js';
+import * as Practica from './views-practica.js';
 
 let current = null;          // vista montada { update, destroy }
 let subs = [];               // suscripciones globales
 let postSubs = new Map();    // (estudiante) suscripciones por clase
 let postsByClass = new Map();
 let shellMounted = false;
+let navSig = '';
 let seenNotifs = null;
 let waitingProfile = false;
 let lastGate = '';
 // "Compuerta" de acceso: si cambia (perfil cargado, clave cambiada, docente deshabilitado) se vuelve a enrutar
-const gateKey = () => `${!!S.user}|${S.isAdmin}|${S.dual ? 1 : 0}|${S.ready.profile ? 1 : 0}|${!!S.profile}|${S.profile?.mustChangePassword ? 1 : 0}|${S.profile?.active === false ? 0 : 1}|${S.role}`;
+const gateKey = () => `${S.role === 'student' && S.practices.length ? 'P' : ''}|${!!S.user}|${S.isAdmin}|${S.dual ? 1 : 0}|${S.ready.profile ? 1 : 0}|${!!S.profile}|${S.profile?.mustChangePassword ? 1 : 0}|${S.profile?.active === false ? 0 : 1}|${S.role}`;
 
 export function start(backend, { demo }) {
   ctx.B = backend; ctx.demo = demo;
@@ -59,7 +61,7 @@ export function switchMode(mode, link = '#/') {
   ui.toast(mode === 'student' ? 'Vista estudiante' : 'Vista docente', 'info', mode === 'student' ? 'Está viendo sus clases como estudiante.' : 'Está gestionando sus clases como docente.', 3000);
 }
 // Las notificaciones de entregas son del rol docente; las demás (publicaciones, notas, inscripciones) del rol estudiante
-const notifMode = (n) => (n.type === 'submission' ? 'teacher' : 'student');
+const notifMode = (n) => n.mode || (n.type === 'submission' ? 'teacher' : 'student');
 
 function onAuth(user) {
   clearSubs(); destroyCurrent();
@@ -67,11 +69,11 @@ function onAuth(user) {
   document.getElementById('modals').innerHTML = '';
   document.body.style.overflow = '';
   shellMounted = false; seenNotifs = null; waitingProfile = false; lastGate = '';
-  Object.assign(S, { user, role: null, isAdmin: false, dual: false, profile: null, classes: [], students: [], teachers: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], ready: {} });
+  Object.assign(S, { user, role: null, isAdmin: false, dual: false, profile: null, classes: [], students: [], teachers: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], practices: [], visits: [], ready: {} });
   if (!user) { route(); return; }
 
   const B = ctx.B;
-  S.isAdmin = user.email === TEACHER_EMAIL.toLowerCase();
+  S.isAdmin = (user.email || '').trim().toLowerCase() === String(TEACHER_EMAIL || '').trim().toLowerCase();
   subs.push(B.watchClasses((l) => { S.classes = l; S.ready.classes = true; emit(); }));
   subs.push(B.watchNotifications(user.uid, handleNotifs));
 
@@ -92,8 +94,9 @@ function onAuth(user) {
       .catch((e) => console.error('[migración]', e))
       .finally(startRole);
   } else {
-    subs.push(B.watchProfile(user.uid, (p) => {
+    subs.push(B.watchProfile(user.uid, (p, error) => {
       S.profile = p;
+      S.profileError = error ? (error.code || 'error') : null;
       S.ready.profile = true;
       if (p) {
         // Solo el administrador puede otorgar studentAccess a un docente
@@ -119,9 +122,13 @@ function startTeacher(user) {
   subs.push(B.watchPostsByOwner(user.uid, (l) => { S.posts = l; S.ready.posts = true; emit(); }));
   subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { S.pendingSubs = l; S.ready.pending = true; emit(); }, user.uid));
   if (S.isAdmin) subs.push(B.watchTeachers((l) => { S.teachers = l; S.ready.teachers = true; emit(); }));
+  subs.push(B.watchPractices('ownerId', user.uid, (l) => { S.practices = l; S.ready.practices = true; emit(); }));
+  subs.push(B.watchVisits('ownerId', user.uid, (l) => { S.visits = l; S.ready.visits = true; emit(); }));
 }
 function startStudent(user) {
   subs.push(ctx.B.watchSubmissionsBy('studentId', user.uid, (l) => { S.mySubs = l; S.ready.subs = true; emit(); }));
+  subs.push(ctx.B.watchPractices('studentId', user.uid, (l) => { S.practices = l; S.ready.practices = true; emit(); }));
+  subs.push(ctx.B.watchVisits('studentId', user.uid, (l) => { S.visits = l; S.ready.visits = true; emit(); }));
 }
 
 // Suscripción a publicaciones de cada clase inscrita (reglas: una consulta por clase)
@@ -160,7 +167,7 @@ function ringBell() {
   b.classList.remove('is-ringing'); void b.offsetWidth; b.classList.add('is-ringing');
   b.addEventListener('animationend', () => b.classList.remove('is-ringing'), { once: true });
 }
-const NOTIF_IC = { post: 'megaphone', grade: 'award', submission: 'upload', returned: 'undo' };
+const NOTIF_IC = { post: 'megaphone', grade: 'award', submission: 'upload', returned: 'undo', practice: 'briefcase', visit: 'calendar' };
 function renderNotifPanel() {
   const panel = document.getElementById('notif-panel');
   if (!panel || panel.classList.contains('hidden')) return;
@@ -178,18 +185,21 @@ function renderNotifPanel() {
 
 // ---------- Estructura (sidebar, barra superior, navegación inferior) ----------
 const navFor = () => {
-  if (S.role === 'student') return [['', 'home', 'Inicio'], ['clases', 'book', 'Mis clases'], ['calificaciones', 'award', 'Notas'], ['perfil', 'user', 'Mi perfil']];
+  if (S.role === 'student') {
+    return [['', 'home', 'Inicio'], ['clases', 'book', 'Mis clases'], ['calificaciones', 'award', 'Notas'],
+      ...(S.practices.length ? [['mi-practica', 'briefcase', 'Mi práctica']] : []), ['perfil', 'user', 'Mi perfil']];
+  }
   return [
     ['', 'home', 'Panel'], ['clases', 'book', 'Clases'], ['estudiantes', 'users', 'Estudiantes'],
-    ['inscripciones', 'userPlus', 'Inscripciones'], ['archivadas', 'archive', 'Archivadas'],
+    ['inscripciones', 'userPlus', 'Inscripciones'], ['practicas', 'briefcase', 'Prácticas'], ['archivadas', 'archive', 'Archivadas'],
     ...(S.isAdmin ? [['admin', 'sliders', 'Administración']] : []),
     ['cuenta', 'user', 'Cuenta']
   ];
 };
-const ACTIVE_ALIAS = { clase: 'clases', tarea: 'clases', estudiante: 'estudiantes' };
+const ACTIVE_ALIAS = { clase: 'clases', tarea: 'clases', estudiante: 'estudiantes', practica: 'practicas' };
 const routesFor = () => (S.role === 'student'
-  ? Student.routes
-  : { ...Teacher.routes, ...Enroll.routes, ...(S.isAdmin ? Admin.routes : {}) });
+  ? { ...Student.routes, ...Practica.studentRoutes }
+  : { ...Teacher.routes, ...Enroll.routes, ...Practica.teacherRoutes, ...(S.isAdmin ? Admin.routes : {}) });
 
 function mountShell() {
   const root = document.getElementById('root');
@@ -277,6 +287,7 @@ function mountShell() {
     }
   });
   shellMounted = true;
+  navSig = navFor().map((n) => n[0]).join('|');
   updateChrome();
 }
 
@@ -343,7 +354,10 @@ function route() {
     if (!S.ready.profile) { renderBoot('SINCRONIZANDO SU PERFIL…'); return; }
     if (!S.profile) {
       destroyCurrent(); shellMounted = false;
-      current = renderNotice(document.getElementById('root'), { icon: 'alert', title: 'Cuenta sin perfil', text: 'Su usuario existe, pero no tiene un perfil en la plataforma. Comuníquese con su docente o con el administrador.' }) || {};
+      const denied = /permission/i.test(S.profileError || '');
+      current = renderNotice(document.getElementById('root'), denied
+        ? { icon: 'lock', title: 'No se pudo leer su perfil', text: 'Firestore rechazó la lectura (permiso denegado). Normalmente significa que las reglas publicadas en Firebase no son las de esta versión: publique de nuevo el archivo firestore.rules.', diag: true }
+        : { icon: 'alert', title: 'Cuenta sin perfil', text: 'Su usuario existe en Authentication, pero no tiene un perfil en la base de datos (colección users). Comuníquese con su docente o con el administrador.', diag: true }) || {};
       return;
     }
     if (S.profile.role === 'teacher' && S.profile.active === false) {
@@ -358,7 +372,8 @@ function route() {
       return;
     }
   }
-  if (!shellMounted) mountShell();
+  const sig = navFor().map((n) => n[0]).join('|');
+  if (!shellMounted || sig !== navSig) mountShell();
 
   const routes = routesFor();
   const view = routes[name] || routes[''];
@@ -371,7 +386,7 @@ function route() {
   el.classList.remove('view-enter'); void el.offsetWidth; el.classList.add('view-enter');
   try { current = view(el, id) || {}; } catch (e) { console.error(e); el.innerHTML = '<div class="panel">Ocurrió un error al cargar esta sección.</div>'; }
 
-  const active = ACTIVE_ALIAS[name] ?? (routes[name] ? name : '');
+  const active = (S.role === 'student' && name === 'practica') ? 'mi-practica' : (ACTIVE_ALIAS[name] ?? (routes[name] ? name : ''));
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === active));
   window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
 }

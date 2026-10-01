@@ -89,6 +89,23 @@ export function greeting() {
 
 export const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(s).trim());
 
+// ---------- Celular ----------
+// Normaliza: quita espacios, guiones, puntos y paréntesis; conserva el + inicial
+export const normPhone = (s) => String(s || '').trim().replace(/[\s().-]/g, '');
+// Colombia: 10 dígitos que inician en 3 (opcional +57); internacional: + y 8 a 15 dígitos
+export const isPhone = (s) => { const p = normPhone(s); return /^(\+?57)?3\d{9}$/.test(p) || /^\+\d{8,15}$/.test(p); };
+export function fmtPhone(s) {
+  const p = normPhone(s); if (!p) return '';
+  const m = p.match(/^(?:\+?57)?(3\d{2})(\d{3})(\d{4})$/);
+  return m ? `${m[1]} ${m[2]} ${m[3]}` : p;
+}
+// Enlace de WhatsApp (asume Colombia cuando son 10 dígitos)
+export function waLink(s) {
+  const p = normPhone(s).replace(/^\+/, '');
+  if (!p) return '';
+  return `https://wa.me/${/^3\d{9}$/.test(p) ? '57' + p : p}`;
+}
+
 export const codeKey = (code) => 'code_' + String(code).toUpperCase().replace(/[^A-Z0-9]/g, '');
 export const docKey = (type, num) => `doc_${type}_${String(num).toUpperCase().replace(/[^A-Z0-9]/g, '')}`;
 
@@ -167,7 +184,7 @@ export function normDocType(v = '') {
 }
 
 // Validaciones compartidas por el registro, el formulario del docente y la carga masiva
-export function validatePerson({ fullName = '', studentCode, docType, docNumber = '', email = '' }, { requireCode = true } = {}) {
+export function validatePerson({ fullName = '', studentCode, docType, docNumber = '', email = '', phone = '' }, { requireCode = true } = {}) {
   const errors = [];
   const name = String(fullName).trim().replace(/\s+/g, ' ');
   if (name.split(' ').length < 2 || name.length < 5) errors.push('Nombre completo incompleto');
@@ -178,6 +195,7 @@ export function validatePerson({ fullName = '', studentCode, docType, docNumber 
   const pattern = ['PA', 'PPT', 'CE'].includes(docType) ? /^[A-Za-z0-9]{5,20}$/ : /^\d{5,15}$/;
   if (!pattern.test(dn)) errors.push('Número de documento inválido');
   if (!isEmail(email)) errors.push('Correo inválido');
+  if (phone && !isPhone(phone)) errors.push('Celular inválido (10 dígitos, p. ej. 3001234567)');
   return errors;
 }
 

@@ -37,7 +37,8 @@ export async function downloadTemplate() {
     { header: 'Código estudiante', key: 'studentCode', width: 20 },
     { header: 'Tipo documento', key: 'docType', width: 18 },
     { header: 'Número documento', key: 'docNumber', width: 20 },
-    { header: 'Correo electrónico', key: 'email', width: 38 }
+    { header: 'Correo electrónico', key: 'email', width: 38 },
+    { header: 'Celular', key: 'phone', width: 18 }
   ];
   const h = ws.getRow(1);
   h.height = 24;
@@ -46,6 +47,7 @@ export async function downloadTemplate() {
     // Código y documento como texto: evita perder ceros o convertir a notación científica
     ws.getCell(`B${r}`).numFmt = '@';
     ws.getCell(`D${r}`).numFmt = '@';
+    ws.getCell(`F${r}`).numFmt = '@';
     ws.getCell(`C${r}`).dataValidation = {
       type: 'list', allowBlank: true, formulae: ['"CC,TI,CE,PA,PPT"'],
       showErrorMessage: true, errorTitle: 'Tipo de documento', error: 'Use CC, TI, CE, PA o PPT'
@@ -63,6 +65,7 @@ export async function downloadTemplate() {
     ['Tipo documento', 'CC (cédula de ciudadanía), TI (tarjeta de identidad), CE (cédula de extranjería), PA (pasaporte) o PPT (permiso por protección temporal).'],
     ['Número documento', 'Sin puntos ni espacios. Ej.: 1053845120'],
     ['Correo electrónico', 'Correo con el que el estudiante iniciará sesión. Ej.: valentina.rios@ucaldas.edu.co'],
+    ['Celular', 'Opcional. 10 dígitos sin espacios. Ej.: 3001234567'],
     ['', ''],
     ['Contraseña inicial', 'Primer nombre con la primera letra en mayúscula + número de documento + * (asterisco).'],
     ['Ejemplo', 'Valentina Ríos Gómez, documento 1053845120  →  Valentina1053845120*'],
@@ -98,6 +101,7 @@ function mapHeader(h) {
   const n = norm(h).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!n) return null;
   if (n.includes('correo') || n.includes('email') || n === 'e mail' || n.includes('mail')) return 'email';
+  if (n.includes('celular') || n.includes('telefono') || n.includes('movil') || n.includes('whatsapp')) return 'phone';
   if (n.includes('tipo')) return 'docType';
   if (n.includes('codigo')) return 'studentCode';
   if (n.includes('documento') || n.includes('cedula') || n.includes('identificacion') || n === 'numero' || n === 'no' || n === 'nro') return 'docNumber';
@@ -173,7 +177,8 @@ export async function parseRoster(file) {
         docType: nt === '' ? 'CC' : nt, // vacío → se asume cédula de ciudadanía
         docTypeAssumed: nt === '',
         docNumber: get('docNumber').replace(/[\s.]/g, '').toUpperCase(),
-        email: get('email').toLowerCase()
+        email: get('email').toLowerCase(),
+        phone: get('phone').replace(/[\s().-]/g, '')
       };
     })
     .filter((r) => r.fullName || r.email || r.docNumber || r.studentCode);

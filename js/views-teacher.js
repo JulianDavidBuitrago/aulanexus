@@ -3,7 +3,7 @@ import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notif
 import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { LIMITS } from './firebase-config.js';
-import { esc, norm, fmtDate, timeAgo, avg, fmtGrade, greeting, errMsg, CLASS_COLORS, download, debounce, docLabel, extractUrl, youtubeId } from './util.js';
+import { esc, norm, fmtDate, timeAgo, avg, fmtGrade, greeting, errMsg, CLASS_COLORS, download, debounce, docLabel, extractUrl, youtubeId, fmtPhone, waLink } from './util.js';
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
   dropzoneHTML, bindDropzone, openReview, TYPE, docText, patchFeed
@@ -474,7 +474,7 @@ function classDetail(el, id) {
   $('#st-q').addEventListener('input', debounce(() => renderStudents(), 120));
   $('#st-export').onclick = () => {
     const c = classById(id);
-    const rows = [['Nombre completo', 'Código', 'Tipo doc.', 'Número doc.', 'Correo']].concat(studentsOf(id).map((s) => [s.fullName, s.studentCode, s.docType, s.docNumber, s.email]));
+    const rows = [['Nombre completo', 'Código', 'Tipo doc.', 'Número doc.', 'Correo', 'Celular']].concat(studentsOf(id).map((s) => [s.fullName, s.studentCode, s.docType, s.docNumber, s.email, s.phone || '']));
     download(`estudiantes-${c.code || c.name}.csv`, '﻿' + rows.map((r) => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   };
   $('#gb-export').onclick = () => exportGradebook(id, subs);
@@ -805,6 +805,7 @@ function studentDetail(el, uid) {
           <div><small>Código</small><b class="mono">${esc(s.studentCode)}</b></div>
           <div><small>Tipo de documento</small><b>${esc(docLabel(s.docType))}</b></div>
           <div><small>Número de documento</small><b class="mono">${esc(s.docNumber)}</b></div>
+          <div><small>Celular</small>${s.phone ? `<b class="mono"><a href="tel:${esc(s.phone)}">${esc(fmtPhone(s.phone))}</a> · <a href="${esc(waLink(s.phone))}" target="_blank" rel="noopener">WhatsApp</a></b>` : '<b class="muted">Sin registrar</b>'}</div>
           <div><small>Entregas realizadas</small><b>${subs.filter((x) => x.submittedAt).length}</b></div>
         </div>
         ${classes.length ? classes.map((c) => {
