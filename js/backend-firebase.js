@@ -139,7 +139,7 @@ export function createBackend() {
     saveSettings: (data) => setDoc(doc(db, 'settings', 'app'), { ...data, updatedAt: serverTimestamp() }, { merge: true }),
 
     // ---------- Perfiles ----------
-    watchProfile: (uid, cb) => onSnapshot(doc(db, 'users', uid), (s) => cb(s.exists() ? plain(s) : null), (e) => { fail(e); cb(null); }),
+    watchProfile: (uid, cb) => onSnapshot(doc(db, 'users', uid), (s) => cb(s.exists() ? plain(s) : null, null), (e) => { fail(e); cb(null, e); }),
     async updateProfile(uid, data, prev) {
       const b = writeBatch(db);
       if (codeKey(data.studentCode) !== codeKey(prev.studentCode)) {
@@ -205,6 +205,9 @@ export function createBackend() {
     },
     deletePost: (id) => deleteDoc(doc(db, 'posts', id)),
     updatePost: (id, data) => updateDoc(doc(db, 'posts', id), { ...data, updatedAt: serverTimestamp() }),
+    // Registro del último aviso por correo (no marca la publicación como editada)
+    markEmailed: (id, n) => updateDoc(doc(db, 'posts', id), { lastEmailAt: serverTimestamp(), lastEmailCount: n }),
+    idToken: () => auth.currentUser.getIdToken(),
 
     // ---------- Entregas / calificaciones ----------
     // ownerId: los docentes solo pueden consultar entregas de sus propias clases

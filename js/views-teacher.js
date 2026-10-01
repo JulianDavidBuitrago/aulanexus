@@ -12,6 +12,7 @@ import {
 import { passwordField, bindPassword, analyze } from './password.js';
 import { promoteToTeacher } from './views-admin.js';
 import { pickFromDrive, driveCards, pickerConfigured } from './drive.js';
+import { audienceHTML, bindAudience, sendPostEmail, mailResultText } from './emailer.js';
 
 export const routes = {
   '': dashboard,
@@ -347,8 +348,9 @@ function classDetail(el, id) {
               </div>
               ${driveBlock('cp')}
               <div class="field"><span class="label">Archivos de código de apoyo <span class="hint">opcional</span></span>${dropzoneHTML(LIMITS.teacherExt, 'Adjunte ejemplos de código (clic o arrastrar)')}</div>
+              ${audienceHTML('cp')}
               <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
-                <span class="muted" style="font-size:12.5px;display:flex;gap:6px;align-items:center">${icon('bell')}Se notificará a todos los estudiantes de la clase.</span>
+                <span class="muted" style="font-size:12.5px;display:flex;gap:6px;align-items:center">${icon('bell')}La campana de la plataforma avisará a todos los estudiantes de la clase.</span>
                 <div style="display:flex;gap:8px"><button class="btn" id="cp-cancel">Cancelar</button><button class="btn btn-primary" id="cp-send" data-loading="Publicando…">${icon('send')}Publicar</button></div>
               </div>
             </div>
@@ -400,6 +402,7 @@ function classDetail(el, id) {
   });
   bindDropzone(composer, { allowed: LIMITS.teacherExt, get: () => composerFiles, set: (v) => { composerFiles = v; } });
   const paintDrive = bindDriveBlock(composer, 'cp', () => composerDrive, (v) => { composerDrive = v; });
+  const audience = bindAudience(composer, 'cp', id);
 
   $('#cp-send').addEventListener('click', (e) => {
     const c = classById(id);
@@ -414,14 +417,22 @@ function classDetail(el, id) {
     }
     const links = cleanLinks($('#cp-links').value);
     const post = { classId: id, ownerId: ownerOf(id), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, driveFiles: composerDrive, dueAt };
+    const mail = audience.value();
+    if (mail.mode === 'some' && !mail.uids.length) { ui.toast('Sin destinatarios', 'warn', 'Seleccione al menos un estudiante para el correo o elija "No enviar".'); return; }
     ui.withLoading(e.currentTarget, async () => {
       try {
-        await ctx.B.createPost(post);
+        const postId = await ctx.B.createPost(post);
         const n = await notifyClass(id, {
           title: `${type === 'tarea' ? 'Nueva tarea' : type === 'material' ? 'Nuevo material' : 'Nuevo anuncio'} en ${c.name}`,
           message: post.title, link: `#/clase/${id}`
         });
-        ui.toast('Publicación creada', 'success', `Se notificó a ${n} ${n === 1 ? 'estudiante' : 'estudiantes'}.`);
+        ui.toast('Publicación creada', 'success', `Se notificó a ${n} ${n === 1 ? 'estudiante' : 'estudiantes'} en la plataforma.`);
+        if (mail.uids.length && postId) {
+          sendPostEmail({ ...post, id: postId }, mail.uids)
+            .then((r) => ui.toast('Correo enviado', 'success', mailResultText(r), 6000))
+            .catch((er) => ui.toast('La publicación quedó creada, pero no se enviaron los correos', 'error', `${er.message} Puede reintentar con el botón de correo de la publicación.`, 9000));
+        }
+        audience.reset();
         ['#cp-title', '#cp-body', '#cp-links', '#cp-due'].forEach((s) => { $(s).value = ''; });
         composerFiles = []; composer.querySelector('.file-list').innerHTML = '';
         composerDrive = []; paintDrive();

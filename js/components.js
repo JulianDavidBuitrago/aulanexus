@@ -5,6 +5,7 @@ import { esc, initials, fmtDate, timeAgo, timeLeft, fmtGrade, gradeTone, linkify
 import { LIMITS } from './firebase-config.js';
 import { S, ctx, classById, ownerOf } from './state.js';
 import { collectDrive, driveCards, parseDriveUrl } from './drive.js';
+import { emailConfigured } from './emailer.js';
 
 export const avatar = (name, size = '', key) =>
   `<div class="avatar ${size}" style="--h:${hueOf(key || name || '')}" aria-hidden="true">${esc(initials(name))}</div>`;
@@ -128,9 +129,11 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
           ${showClass && c ? `<span class="chip chip-c" style="--c:${colorVar(c.color)};padding:2px 8px">${esc(c.name)}</span>` : ''}
           <span title="${fmtDate(p.createdAt)}">${timeAgo(p.createdAt)}</span>
           ${p.updatedAt ? `<span class="edited" title="Editado ${fmtDate(p.updatedAt)}">${icon('edit')}editado</span>` : ''}
+          ${role === 'teacher' && p.lastEmailAt ? `<span class="mail-sent" title="Último aviso por correo: ${fmtDate(p.lastEmailAt)}">${icon('mail')}${p.lastEmailCount || 0}</span>` : ''}
         </div>
       </div>
       ${role === 'teacher' ? `<div class="post-actions">
+        ${emailConfigured() ? `<button class="btn btn-ghost btn-icon btn-sm" data-act="email-post" data-id="${p.id}" title="Enviar aviso por correo" aria-label="Enviar aviso por correo">${icon('mail')}</button>` : ''}
         <button class="btn btn-ghost btn-icon btn-sm" data-act="edit-post" data-id="${p.id}" title="Editar publicación" aria-label="Editar publicación">${icon('edit')}</button>
         <button class="btn btn-ghost btn-icon btn-sm btn-danger" data-act="delete-post" data-id="${p.id}" title="Eliminar publicación" aria-label="Eliminar publicación">${icon('trash')}</button>
       </div>` : ''}

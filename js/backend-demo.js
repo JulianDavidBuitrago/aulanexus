@@ -344,6 +344,8 @@ export function createBackend() {
     watchPostsByOwner: (uid, cb) => watch(() => values('posts').filter((p) => p.ownerId === uid), cb),
     async createPost(p) { await wait(); const id = 'p-' + newId(); db.posts[id] = { id, ...p, createdAt: Date.now() }; commit(); return id; },
     async deletePost(id) { await wait(); delete db.posts[id]; commit(); },
+    async markEmailed(id, n) { if (db.posts[id]) { Object.assign(db.posts[id], { lastEmailAt: Date.now(), lastEmailCount: n }); commit(); } },
+    async idToken() { return 'demo-token'; },
     async updatePost(id, data) { await wait(); if (!db.posts[id]) throw err('permission-denied'); Object.assign(db.posts[id], clone(data), { updatedAt: Date.now() }); commit(); },
 
     watchSubmissionsBy: (field, value, cb, ownerId) => watch(() => values('submissions').filter((s) => s[field] === value && (!ownerId || s.ownerId === ownerId)), cb),
