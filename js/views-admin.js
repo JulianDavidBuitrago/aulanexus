@@ -1,7 +1,7 @@
 // =====================================================================
 //  Administración (solo el administrador): registro libre y docentes
 // =====================================================================
-import { usagePanelHTML } from './consumo.js';
+import { usagePanelHTML, refreshUsage } from './consumo.js';
 import { S, ctx, byName, selfRegOpen } from './state.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
@@ -289,6 +289,13 @@ function adminView(el) {
   $('#ad-q').addEventListener('input', debounce(update, 120));
 
   el.addEventListener('click', async (e) => {
+    const rb = e.target.closest('[data-usage-refresh]');
+    if (rb) {
+      if (rb.disabled) return;
+      try { await ui.withLoading(rb, refreshUsage); ui.toast('Consumo actualizado', 'success', 'Cifras consultadas en Google Cloud.'); }
+      catch (er) { ui.toast('No se pudo actualizar el consumo', 'error', er.message || errMsg(er)); }
+      return;
+    }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const t = S.teachers.find((x) => x.uid === b.dataset.id);
     if (b.dataset.act === 'new-teacher') teacherForm();

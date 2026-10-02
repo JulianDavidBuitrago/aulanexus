@@ -1473,3 +1473,7 @@ textarea.mono-soft { font-family: var(--mono); font-size: 12.5px; }
 .uc-limit { bottom: auto; margin: 0; }
 .uc-area { position: relative; flex: 1; height: 100%; display: flex; align-items: flex-end; gap: 4px; min-width: max-content; }
 .uc-area .uc-limit { position: absolute; left: 0; right: 0; }
+
+/* Consumo: botón "Actualizar ahora" en la cabecera del panel */
+.usage-panel .panel-head { flex-wrap: wrap; gap: 8px; }
+.usage-head-r { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

@@ -2,9 +2,37 @@
 //  Consumo de Firestore (lo calcula el Apps Script cada hora y lo guarda
 //  en metrics/usage). Panel en Administración y aviso para docentes.
 // =====================================================================
-import { S } from './state.js';
+import * as cfg from './firebase-config.js';
+import { S, ctx, emit } from './state.js';
 import { icon } from './icons.js';
 import { esc, timeAgo } from './util.js';
+
+// Servicio de Apps Script que actualiza el consumo al pulsar "Actualizar ahora"
+const RELAY = cfg.USAGE_RELAY || {};
+export const usageRelayConfigured = () => !!ctx.demo || /^https:\/\/script\.google\.com\/(a\/macros\/[^/]+|macros)\/s\/[\w-]+\/exec/.test(String(RELAY.url || '').trim());
+
+export async function refreshUsage() {
+  if (ctx.demo) {
+    await new Promise((r) => setTimeout(r, 900));
+    if (S.metrics) { S.metrics = { ...S.metrics, updatedAt: Date.now() }; emit(); }
+    return { ok: true };
+  }
+  const idToken = await ctx.B.idToken();
+  let res, data = null;
+  try {
+    // Petición "simple" (sin cabeceras): Apps Script no exige CORS previo
+    res = await fetch(String(RELAY.url).trim(), { method: 'POST', body: JSON.stringify({ idToken }) });
+  } catch {
+    throw new Error('No se pudo contactar el servicio de consumo. Revise USAGE_RELAY en firebase-config.js y que la implementación tenga acceso "Cualquier usuario".');
+  }
+  try { data = await res.json(); } catch { /* respuesta no JSON */ }
+  if (!data) throw new Error('El servicio de consumo respondió de forma inesperada. Verifique que la URL termine en /exec.');
+  if (!data.ok) throw new Error(data.error || 'No se pudo actualizar el consumo.');
+  return data;
+}
+
+const refreshBtn = () => (usageRelayConfigured()
+  ? `<button type="button" class="btn btn-sm" data-usage-refresh data-loading="Consultando…">${icon('restore')}Actualizar ahora</button>` : '');
 
 const LABEL = { reads: 'Lecturas', writes: 'Escrituras', deletes: 'Borrados' };
 const n = (v) => Number(v || 0).toLocaleString('es-CO');
@@ -34,12 +62,17 @@ export function usageBanner() {
 export function usagePanelHTML() {
   const m = S.metrics;
   if (S.metricsError || !m) {
-    return `<div class="panel-head"><h2>${icon('chart')}Consumo de la base de datos</h2></div>
+    if (usageRelayConfigured() && !S.metricsError) {
+      return `<div class="panel-head"><h2>${icon('chart')}Consumo de la base de datos</h2>${refreshBtn()}</div>
+        <div class="callout">${icon('info')}<div><b>Aún no hay datos de consumo.</b> Pulse <b>Actualizar ahora</b> para consultarlos.</div></div>`;
+    }
+    return `<div class="panel-head"><h2>${icon('chart')}Consumo de la base de datos</h2>${refreshBtn()}</div>
       <div class="callout">${icon('info')}<div><b>Monitoreo sin configurar.</b> El navegador no puede consultar el consumo de Firestore; lo calcula cada hora el Apps Script de AulaNexus con su cuenta de Google y lo publica aquí.
       Siga la sección <b>8.11</b> del README: agregue <span class="mono">AulaNexusConsumo.gs</span> y <span class="mono">appsscript.json</span> al proyecto de Apps Script, habilite la API <i>Cloud Monitoring</i> y ejecute <span class="mono">instalarMonitoreo</span>.</div></div>`;
   }
   const th = m.threshold || 0.9;
-  const stale = m.updatedAt && Date.now() - m.updatedAt > 3 * 3600e3;
+  const manual = usageRelayConfigured();
+  const stale = !manual && m.updatedAt && Date.now() - m.updatedAt > 3 * 3600e3;
   const meters = Object.keys(LABEL).map((k) => {
     const v = m.today?.[k] || 0, lim = m.limits?.[k] || 1, p = v / lim;
     return `<div class="usage-meter ${tone(p, th)}">
@@ -59,7 +92,10 @@ export function usagePanelHTML() {
   return `
     <div class="panel-head">
       <h2>${icon('chart')}Consumo de la base de datos</h2>
-      <span class="muted" style="font-size:12px">${m.updatedAt ? `Actualizado ${esc(timeAgo(m.updatedAt))} · se revisa cada hora` : ''}</span>
+      <div class="usage-head-r">
+        <span class="muted" style="font-size:12px">${m.updatedAt ? `Actualizado ${esc(timeAgo(m.updatedAt))}${manual ? '' : ' · se revisa cada hora'}` : ''}</span>
+        ${refreshBtn()}
+      </div>
     </div>
     ${stale ? `<div class="callout warn">${icon('clock')}<div>El monitoreo no se actualiza desde hace más de 3 horas. Revise en Apps Script la sección <i>Ejecuciones</i> por si hay errores.</div></div>` : ''}
     ${usageBanner()}
