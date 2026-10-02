@@ -16,7 +16,7 @@ export const firebaseConfig = {
 
 // Cuenta con rol docente (debe coincidir con firestore.rules)
 export const TEACHER_EMAIL = "julian.buitrago@ucaldas.edu.co";
-export const TEACHER_NAME = "Julián David Buitrago";
+export const TEACHER_NAME = "Julián David Buitrago Orozco";
 
 export const APP = {
   name: "AulaNexus",
@@ -33,6 +33,12 @@ export const LIMITS = {
   maxTextChars: 20000
 };
 
+
+export const EMAIL_RELAY = {
+  url: 'https://script.google.com/macros/s/AKfycby9mfNWlQmGr03Lyp4BEmq1T8BwTS3J7lZcmtyaGNIJ_WERgMtPxxd_y7TzZPz7DOCI/exec'
+};
+
+export const USAGE_RELAY = { url: 'https://script.google.com/macros/s/AKfycbwllkrk13bRNXvlkxHPPOirIFVQq62qJ6ejAwLEwSNR9WIK1JUYDqbYyRKjKTIKio0R/exec' };
 // ---------------------------------------------------------------------
 // OPCIONAL · Selector de Google Drive (README §8.5.2). Descomente y complete.
 // export const GOOGLE_DRIVE = { apiKey: '', clientId: '', appId: '' };
