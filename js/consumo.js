@@ -1,0 +1,77 @@
+// =====================================================================
+//  Consumo de Firestore (lo calcula el Apps Script cada hora y lo guarda
+//  en metrics/usage). Panel en Administración y aviso para docentes.
+// =====================================================================
+import { S } from './state.js';
+import { icon } from './icons.js';
+import { esc, timeAgo } from './util.js';
+
+const LABEL = { reads: 'Lecturas', writes: 'Escrituras', deletes: 'Borrados' };
+const n = (v) => Number(v || 0).toLocaleString('es-CO');
+const tone = (p, th = 0.9) => (p >= th ? 'danger' : p >= 0.7 ? 'warn' : 'ok');
+const hourCO = (ms) => new Date(ms).toLocaleString('es-CO', { timeZone: 'America/Bogota', weekday: 'long', hour: 'numeric', minute: '2-digit' });
+
+export function usageAlertKinds(m = S.metrics) {
+  if (!m?.today || !m.limits) return [];
+  const th = m.threshold || 0.9;
+  // Solo si los datos son del día de cuota vigente (no más de 26 h)
+  if (m.updatedAt && Date.now() - m.updatedAt > 26 * 3600e3) return [];
+  return Object.keys(LABEL).filter((k) => m.limits[k] && (m.today[k] || 0) / m.limits[k] >= th);
+}
+
+// Aviso para docentes (inicio) y administrador
+export function usageBanner() {
+  const m = S.metrics, kinds = usageAlertKinds(m);
+  if (!kinds.length) return '';
+  const max = Math.max(...kinds.map((k) => (m.today[k] || 0) / m.limits[k]));
+  return `<div class="callout ${max >= 1 ? 'err' : 'warn'} usage-banner">${icon('alert')}<div>
+    <b>${max >= 1 ? 'Se alcanzó el límite diario gratuito de la base de datos' : `La base de datos está al ${Math.round(max * 100)} % del límite diario gratuito`}</b>
+    <small>${kinds.map((k) => `${LABEL[k]}: ${n(m.today[k])} de ${n(m.limits[k])}`).join(' · ')}. ${max >= 1 ? 'Si el proyecto está en el plan Spark, la plataforma puede dejar de responder' : 'Si se llega al 100 % en el plan Spark, la plataforma deja de responder'} hasta ${m.resetsAt ? esc(hourCO(m.resetsAt)) : 'la medianoche del Pacífico'} ${S.isAdmin ? '<a href="#/admin">Ver consumo</a>' : 'Avise al administrador.'}</small>
+  </div></div>`;
+}
+
+// Panel de Administración
+export function usagePanelHTML() {
+  const m = S.metrics;
+  if (S.metricsError || !m) {
+    return `<div class="panel-head"><h2>${icon('chart')}Consumo de la base de datos</h2></div>
+      <div class="callout">${icon('info')}<div><b>Monitoreo sin configurar.</b> El navegador no puede consultar el consumo de Firestore; lo calcula cada hora el Apps Script de AulaNexus con su cuenta de Google y lo publica aquí.
+      Siga la sección <b>8.11</b> del README: agregue <span class="mono">AulaNexusConsumo.gs</span> y <span class="mono">appsscript.json</span> al proyecto de Apps Script, habilite la API <i>Cloud Monitoring</i> y ejecute <span class="mono">instalarMonitoreo</span>.</div></div>`;
+  }
+  const th = m.threshold || 0.9;
+  const stale = m.updatedAt && Date.now() - m.updatedAt > 3 * 3600e3;
+  const meters = Object.keys(LABEL).map((k) => {
+    const v = m.today?.[k] || 0, lim = m.limits?.[k] || 1, p = v / lim;
+    return `<div class="usage-meter ${tone(p, th)}">
+      <div class="um-top"><span>${LABEL[k]}</span><b>${Math.round(p * 100)} %</b></div>
+      <div class="um-bar"><i style="width:${Math.min(100, p * 100)}%"></i><s style="left:${th * 100}%" title="Umbral de alerta ${Math.round(th * 100)} %"></s></div>
+      <small>${n(v)} de ${n(lim)} hoy</small>
+    </div>`;
+  }).join('');
+  const days = m.days || [];
+  const maxR = Math.max(m.limits?.reads || 1, ...days.map((d) => d.reads || 0)) * 1.08;
+  const chart = days.length ? `<div class="usage-chart" role="img" aria-label="Lecturas por día del mes"><div class="uc-area">
+      <span class="uc-limit" style="bottom:${((m.limits?.reads || 0) / maxR) * 100}%"><em>límite diario de lecturas</em></span>
+      ${days.map((d) => `<div class="uc-col" title="${esc(d.d)} · ${n(d.reads)} lecturas · ${n(d.writes)} escrituras · ${n(d.deletes)} borrados">
+        <i class="${tone((d.reads || 0) / (m.limits?.reads || 1), th)}" style="height:${Math.max(2, ((d.reads || 0) / maxR) * 100)}%"></i><span>${Number(String(d.d).slice(-2))}</span></div>`).join('')}
+    </div></div>` : '<p class="muted">Aún no hay datos del mes.</p>';
+  const avg = days.length ? Math.round((m.month?.reads || 0) / days.length) : 0;
+  return `
+    <div class="panel-head">
+      <h2>${icon('chart')}Consumo de la base de datos</h2>
+      <span class="muted" style="font-size:12px">${m.updatedAt ? `Actualizado ${esc(timeAgo(m.updatedAt))} · se revisa cada hora` : ''}</span>
+    </div>
+    ${stale ? `<div class="callout warn">${icon('clock')}<div>El monitoreo no se actualiza desde hace más de 3 horas. Revise en Apps Script la sección <i>Ejecuciones</i> por si hay errores.</div></div>` : ''}
+    ${usageBanner()}
+    <h3 class="usage-h">Hoy <span class="muted">· cuota gratuita diaria · se reinicia ${m.resetsAt ? esc(hourCO(m.resetsAt)) : 'a medianoche del Pacífico'}</span></h3>
+    <div class="usage-meters">${meters}</div>
+    <h3 class="usage-h">Este mes</h3>
+    <div class="kv usage-kv">
+      <div><small>Lecturas</small><b>${n(m.month?.reads)}</b></div>
+      <div><small>Escrituras</small><b>${n(m.month?.writes)}</b></div>
+      <div><small>Borrados</small><b>${n(m.month?.deletes)}</b></div>
+      <div><small>Promedio diario de lecturas</small><b>${n(avg)}</b></div>
+    </div>
+    ${chart}
+    <p class="muted usage-note">${icon('info')}Al llegar al ${Math.round(th * 100)} % de cualquier límite diario se envía un correo de alerta al administrador y los docentes ven un aviso en su panel. En el plan Blaze estos límites son la parte gratuita: lo que los supere se cobra, sin interrumpir el servicio.</p>`;
+}
