@@ -1,6 +1,7 @@
 // =====================================================================
 //  Administración (solo el administrador): registro libre y docentes
 // =====================================================================
+import { usagePanelHTML } from './consumo.js';
 import { S, ctx, byName, selfRegOpen } from './state.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
@@ -241,6 +242,8 @@ function adminView(el) {
 
     <section class="stats" id="ad-stats"></section>
 
+    <div class="panel usage-panel" id="ad-usage"></div>
+
     <div class="panel">
       <div class="panel-head"><h2>${icon('users')}Registro de estudiantes</h2><span id="ad-reg-badge"></span></div>
       <div class="setting-row">
@@ -307,6 +310,8 @@ function adminView(el) {
   });
 
   function update() {
+    const uh = usagePanelHTML(), ub = $('#ad-usage');
+    if (ub.dataset.h !== uh) { ub.innerHTML = uh; ub.dataset.h = uh; }
     const reg = selfRegOpen();
     const sw = $('#ad-reg'); if (!sw.disabled) sw.checked = reg;
     $('#ad-reg-badge').innerHTML = reg ? '<span class="badge b-success dot">Habilitado</span>' : '<span class="badge b-warning dot">Deshabilitado</span>';

@@ -216,6 +216,9 @@ export function createBackend() {
     markEmailed: (id, n) => updateDoc(doc(db, 'posts', id), { lastEmailAt: serverTimestamp(), lastEmailCount: n }),
     idToken: () => auth.currentUser.getIdToken(),
 
+    // ---------- Consumo (lo escribe el Apps Script cada hora) ----------
+    watchMetrics: (cb) => onSnapshot(doc(db, 'metrics', 'usage'), (s) => cb(s.exists() ? plain(s) : null, null), (e) => cb(null, e)),
+
     // ---------- Asistencia ----------
     // filters: { classId, ownerId } (docente) o { studentId } (estudiante)
     watchAttendance: (filters, cb) => onSnapshot(query(collection(db, 'attendance'), ...Object.entries(filters).map(([k, v]) => where(k, '==', v))),

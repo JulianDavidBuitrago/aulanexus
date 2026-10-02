@@ -1436,3 +1436,40 @@ textarea.mono-soft { font-family: var(--mono); font-size: 12.5px; }
 .att-days { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
 .att-day-times .input { min-width: 108px; }
 @media (max-width: 560px) { .att-b.on span { display: none; } .att-b { min-width: 0; padding: 0 6px; } }
+
+/* ---------- Consumo de Firestore ---------- */
+.callout.err { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.callout.err .ic { color: var(--danger); }
+.usage-banner > div { display: grid; gap: 3px; }
+.usage-banner small { color: var(--text-2); font-size: 12.5px; }
+.usage-panel { display: grid; gap: 12px; }
+.usage-h { font-size: 14px; margin: 6px 0 0; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
+.usage-h .muted { font-weight: 500; font-size: 12px; }
+.usage-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.usage-meter { padding: 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); display: grid; gap: 8px; }
+.um-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.um-top b { font-size: 22px; font-weight: 800; }
+.usage-meter.ok .um-top b { color: var(--success); } .usage-meter.warn .um-top b { color: var(--warning); } .usage-meter.danger .um-top b { color: var(--danger); }
+.um-bar { position: relative; height: 10px; border-radius: 99px; background: color-mix(in srgb, var(--border) 70%, transparent); overflow: visible; }
+.um-bar i { display: block; height: 100%; border-radius: 99px; transition: width .6s var(--ease); }
+.usage-meter.ok .um-bar i { background: var(--success); } .usage-meter.warn .um-bar i { background: var(--warning); } .usage-meter.danger .um-bar i { background: var(--danger); }
+.um-bar s { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: .45; border-radius: 2px; }
+.usage-meter small { font-size: 12px; color: var(--muted); }
+.usage-kv b { font-size: 17px; }
+.usage-chart { position: relative; display: flex; align-items: flex-end; gap: 3px; height: 150px; padding: 8px 4px 20px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); overflow-x: auto; }
+.uc-col { flex: 1 0 12px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
+.uc-col i { display: block; width: 100%; max-width: 22px; border-radius: 5px 5px 2px 2px; background: var(--primary); }
+.uc-col i.warn { background: var(--warning); } .uc-col i.danger { background: var(--danger); } .uc-col i.ok { background: color-mix(in srgb, var(--primary) 75%, var(--c-cyan)); }
+.uc-col span { position: absolute; bottom: -17px; font-size: 9.5px; color: var(--muted); }
+.uc-limit { position: absolute; left: 4px; right: 4px; border-top: 1.5px dashed var(--danger); opacity: .6; pointer-events: none; margin-bottom: 20px; }
+.uc-limit em { position: absolute; right: 0; top: -15px; font-size: 10px; font-style: normal; color: var(--danger); }
+.usage-note { font-size: 12.5px; margin: 0; display: block; }
+.usage-note .ic { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.usage-chart { padding: 0 6px; height: auto; display: block; }
+.usage-chart { position: relative; }
+.usage-chart::before { content: ''; display: block; height: 0; }
+.usage-chart { display: flex; height: 160px; padding: 12px 6px 22px; }
+.uc-col { flex: 0 0 22px; max-width: 22px; position: relative; }
+.uc-limit { bottom: auto; margin: 0; }
+.uc-area { position: relative; flex: 1; height: 100%; display: flex; align-items: flex-end; gap: 4px; min-width: max-content; }
+.uc-area .uc-limit { position: absolute; left: 0; right: 0; }

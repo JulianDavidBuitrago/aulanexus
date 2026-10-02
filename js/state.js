@@ -16,6 +16,8 @@ export const S = {
   pendingSubs: [],     // (docente) entregas sin calificar de sus clases
   practices: [],       // (docente) prácticas que asesora · (estudiante) sus prácticas
   visits: [],          // visitas de seguimiento de prácticas
+  myAttendance: [],    // (estudiante) mis registros de asistencia
+  metrics: null,       // (docentes) consumo de Firestore publicado por el Apps Script
   ready: {}
 };
 

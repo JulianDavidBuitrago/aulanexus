@@ -120,6 +120,7 @@ function startTeacher(user) {
   const B = ctx.B;
   subs.push(B.watchStudents((l) => { S.students = l; S.ready.students = true; emit(); }));
   const tick = setInterval(emit, 30000); subs.push(() => clearInterval(tick)); // abre/cierra sesiones de asistencia a tiempo
+  subs.push(B.watchMetrics((m, e) => { S.metrics = m; S.metricsError = e ? (e.code || e.message) : null; emit(); }));
   subs.push(B.watchPostsByOwner(user.uid, (l) => { S.posts = l; S.ready.posts = true; emit(); }));
   subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { S.pendingSubs = l; S.ready.pending = true; emit(); }, user.uid));
   if (S.isAdmin) subs.push(B.watchTeachers((l) => { S.teachers = l; S.ready.teachers = true; emit(); }));

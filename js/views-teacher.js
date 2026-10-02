@@ -13,6 +13,7 @@ import { passwordField, bindPassword, analyze } from './password.js';
 import { promoteToTeacher } from './views-admin.js';
 import { pickFromDrive, driveCards, pickerConfigured } from './drive.js';
 import { audienceHTML, bindAudience, sendPostEmail, mailResultText } from './emailer.js';
+import { usageBanner } from './consumo.js';
 import { attendanceFieldsHTML, bindAttendanceFields, readAttendanceFields, attendancePanel, scheduleText, openSession } from './asistencia.js';
 
 export const routes = {
@@ -239,6 +240,7 @@ function dashboard(el) {
         <button class="btn btn-primary" data-act="new-class">${icon('plus')}Nueva clase</button>
       </div>
     </section>
+    <div id="d-usage"></div>
     <section class="stats" id="d-stats"></section>
     <section class="grid-2">
       <div class="panel">
@@ -255,6 +257,8 @@ function dashboard(el) {
   bindCardNav(el);
 
   function update() {
+    const ub = el.querySelector('#d-usage'), uh = usageBanner();
+    if (ub && ub.dataset.h !== uh) { ub.innerHTML = uh; ub.dataset.h = uh; }
     const act = activeClasses();
     ui.stats(el.querySelector('#d-stats'), [
       { key: 'c', label: 'Clases activas', value: S.ready.classes ? act.length : null, icon: 'book', color: 'var(--c-cyan)' },

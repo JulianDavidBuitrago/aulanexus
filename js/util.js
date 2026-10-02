@@ -143,7 +143,7 @@ export function errMsg(e) {
     'app/registration-closed': 'El registro libre de estudiantes está deshabilitado. Su docente creará su cuenta.',
     'permission-denied': 'No tiene permisos para realizar esta acción.',
     'invalid-argument': 'La base de datos rechazó el formato de los datos. Actualice la página (Ctrl + F5) e intente de nuevo.',
-    'resource-exhausted': 'El documento superó el tamaño permitido. Reduzca imágenes o contenido.',
+    'resource-exhausted': 'Se alcanzó el límite diario gratuito de la base de datos (plan Spark de Firebase). El servicio se restablece hacia las 2:00–3:00 a. m. (hora de Colombia); para evitarlo, el administrador debe pasar el proyecto al plan Blaze.',
     'unavailable': 'El servicio no está disponible temporalmente. Intente de nuevo.'
   };
   for (const k of Object.keys(map)) if (code.includes(k)) return map[k];

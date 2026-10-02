@@ -464,6 +464,24 @@ export function createBackend() {
       commit();
     },
 
+    // ---------- Consumo (datos simulados) ----------
+    watchMetrics(cb) {
+      const t = Date.now(), days = [];
+      const d0 = new Date(); d0.setDate(1);
+      for (let i = 0; i < new Date().getDate(); i++) {
+        const d = new Date(d0); d.setDate(1 + i);
+        const busy = [1, 3].includes(d.getDay());
+        days.push({ d: d.toISOString().slice(0, 10), reads: busy ? 31000 + i * 450 : 6000 + i * 180, writes: busy ? 2400 : 600, deletes: 30 });
+      }
+      const today = { reads: 46210, writes: 3140, deletes: 42 };
+      if (days.length) Object.assign(days[days.length - 1], today);
+      const sum = (k) => days.reduce((a, x) => a + x[k], 0);
+      const reset = new Date(); reset.setHours(26, 0, 0, 0);
+      setTimeout(() => cb({ id: 'usage', updatedAt: t - 22 * 60000, quotaDay: '', resetsAt: reset.getTime(), today, month: { reads: sum('reads'), writes: sum('writes'), deletes: sum('deletes') },
+        limits: { reads: 50000, writes: 20000, deletes: 20000 }, threshold: 0.9, alerts: ['reads'], days }, null), 150);
+      return () => {};
+    },
+
     // ---------- Asistencia ----------
     watchAttendance: (filters, cb) => watch(() => values('attendance').filter((r) => Object.entries(filters).every(([k, v]) => r[k] === v)), cb),
     async setAttendance(id, data) {
