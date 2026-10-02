@@ -69,7 +69,7 @@ function onAuth(user) {
   document.getElementById('modals').innerHTML = '';
   document.body.style.overflow = '';
   shellMounted = false; seenNotifs = null; waitingProfile = false; lastGate = '';
-  Object.assign(S, { user, role: null, isAdmin: false, dual: false, profile: null, classes: [], students: [], teachers: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], practices: [], visits: [], ready: {} });
+  Object.assign(S, { user, role: null, isAdmin: false, dual: false, profile: null, classes: [], students: [], teachers: [], posts: [], notifications: [], mySubs: [], pendingSubs: [], practices: [], visits: [], myAttendance: [], ready: {} });
   if (!user) { route(); return; }
 
   const B = ctx.B;
@@ -119,6 +119,7 @@ function onAuth(user) {
 function startTeacher(user) {
   const B = ctx.B;
   subs.push(B.watchStudents((l) => { S.students = l; S.ready.students = true; emit(); }));
+  const tick = setInterval(emit, 30000); subs.push(() => clearInterval(tick)); // abre/cierra sesiones de asistencia a tiempo
   subs.push(B.watchPostsByOwner(user.uid, (l) => { S.posts = l; S.ready.posts = true; emit(); }));
   subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { S.pendingSubs = l; S.ready.pending = true; emit(); }, user.uid));
   if (S.isAdmin) subs.push(B.watchTeachers((l) => { S.teachers = l; S.ready.teachers = true; emit(); }));
@@ -127,6 +128,8 @@ function startTeacher(user) {
 }
 function startStudent(user) {
   subs.push(ctx.B.watchSubmissionsBy('studentId', user.uid, (l) => { S.mySubs = l; S.ready.subs = true; emit(); }));
+  const tick = setInterval(emit, 30000); subs.push(() => clearInterval(tick));
+  subs.push(ctx.B.watchAttendance({ studentId: user.uid }, (l) => { S.myAttendance = l; S.ready.attendance = true; emit(); }));
   subs.push(ctx.B.watchPractices('studentId', user.uid, (l, e) => { S.practices = l; S.practicesError = e ? (e.code || e.message) : null; S.ready.practices = true; emit(); }));
   subs.push(ctx.B.watchVisits('studentId', user.uid, (l) => { S.visits = l; S.ready.visits = true; emit(); }));
 }

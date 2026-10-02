@@ -5,8 +5,9 @@
 import { TEACHER_EMAIL, TEACHER_NAME } from './firebase-config.js';
 import { codeKey, docKey, uid as newId } from './util.js';
 import { emptyProposal, defaultFinal, currentPeriod } from './practica-model.js';
+import { openSession as attOpen, sessionKeys as attKeys, localParts as attLocal, keyOf as attKey, toMin as attMin } from './asistencia-model.js';
 
-const KEY = 'aulanexus-demo-v5';
+const KEY = 'aulanexus-demo-v6';
 const SESSION = 'aulanexus-demo-session';
 export const DEMO_ACCOUNTS = {
   admin: { email: TEACHER_EMAIL, password: 'Docente#2026' },
@@ -106,7 +107,7 @@ function seed() {
   const now = Date.now();
   const H = 3.6e6, D = 24 * H;
   const db = { accounts: {}, users: {}, classes: {}, posts: {}, submissions: {}, notifications: {}, uniques: {},
-    practices: {}, practiceComments: {}, practiceFiles: {}, visits: {},
+    practices: {}, practiceComments: {}, practiceFiles: {}, visits: {}, attendance: {},
     settings: { allowSelfRegistration: true, schemaVersion: 2 } };
 
   db.accounts[TEACHER_EMAIL] = { uid: ADMIN_UID, password: DEMO_ACCOUNTS.admin.password };
@@ -185,6 +186,32 @@ function seed() {
   notif('s-valentina', 'post', 'Nueva tarea en Seguridad en Aplicaciones Web', 'Reto 2 · Análisis de inyección SQL', '#/clase/c-saw', now - 1 * D);
   notif(ADMIN_UID, 'submission', 'Nueva entrega · Camilo Andrés Zuluaga Toro', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 0.5 * D);
   notif(ADMIN_UID, 'submission', 'Nueva entrega · Valentina Ríos Gómez', 'Reto 1 · Validador y hash de contraseñas', '#/tarea/p6', now - 1.5 * D, true);
+  // ---------- Asistencia (ejemplo) ----------
+  {
+    const tz = -new Date().getTimezoneOffset();
+    const lp = attLocal(now, tz);
+    const s0 = Math.max(0, Math.floor((lp.min - 20) / 5) * 5), e0 = Math.min(1439, s0 + 150);
+    const hh = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    const days = { 1: { start: '07:00', end: '10:00', s: 420, e: 600 }, 3: { start: '07:00', end: '09:00', s: 420, e: 540 } };
+    days[lp.dow] = { start: hh(s0), end: hh(e0), s: s0, e: e0 };
+    const startDate = new Date(now - 35 * D + tz * 60000).toISOString().slice(0, 10);
+    const ihm = db.classes['c-ihm'];
+    ihm.attendance = { enabled: true, tz, before: 10, late: 15, startDate, days, extra: [], removed: [] };
+    const stIhm = Object.values(db.users).filter((u) => (u.classIds || []).includes('c-ihm'));
+    const today = attKey(lp);
+    const pattern = ['presente', 'presente', 'presente', 'tarde', 'presente', 'ausente', 'presente', 'excusa', 'presente', 'presente', 'tarde'];
+    attKeys(ihm, [], now).filter((k) => k !== today).forEach((k, i) => stIhm.forEach((u, j) => {
+      if ((i + j) % 9 === 4) return; // sin registro: cuenta como ausencia
+      const id = `c-ihm_${k}_${u.uid}`;
+      db.attendance[id] = { id, classId: 'c-ihm', ownerId: ADMIN_UID, studentId: u.uid, studentName: u.fullName, dateKey: k, status: pattern[(i * 3 + j) % pattern.length], by: j % 2 ? 'teacher' : 'student', at: now - (i + 1) * 3 * D };
+    }));
+    stIhm.filter((u) => u.uid !== 's-valentina').slice(0, 3).forEach((u) => {
+      const id = `c-ihm_${today}_${u.uid}`;
+      db.attendance[id] = { id, classId: 'c-ihm', ownerId: ADMIN_UID, studentId: u.uid, studentName: u.fullName, dateKey: today, status: 'presente', by: 'student', at: now - 5 * 60000 };
+    });
+    void attMin;
+  }
+
   // ---------- Prácticas empresariales (ejemplo ficticio) ----------
   const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
   const company = {
@@ -251,7 +278,7 @@ function seed() {
 export function createBackend() {
   let db;
   try { db = JSON.parse(store.get(KEY)) || seed(); } catch { db = seed(); }
-  for (const k of ['practices', 'practiceComments', 'practiceFiles', 'visits']) db[k] = db[k] || {};
+  for (const k of ['practices', 'practiceComments', 'practiceFiles', 'visits', 'attendance']) db[k] = db[k] || {};
   const watchers = new Set();
   let authCb = () => {};
   let current = null;
@@ -435,6 +462,25 @@ export function createBackend() {
       Object.assign(cur, { status: 'devuelto', grade: null, gradedAt: null, submittedAt: null, prevSubmittedAt: r.prevSubmittedAt || null,
         returnNote: r.returnNote, returnDueAt: r.returnDueAt || null, returnCount: r.returnCount, returnedAt: Date.now() });
       commit();
+    },
+
+    // ---------- Asistencia ----------
+    watchAttendance: (filters, cb) => watch(() => values('attendance').filter((r) => Object.entries(filters).every(([k, v]) => r[k] === v)), cb),
+    async setAttendance(id, data) {
+      await wait(120); need();
+      const c = db.classes[data.classId];
+      if (!c || (c.ownerId !== current.uid && current.uid !== ADMIN_UID)) throw err('permission-denied');
+      db.attendance[id] = { id, ...(db.attendance[id] || {}), ...clone(data), at: Date.now() }; commit();
+    },
+    async deleteAttendance(id) { await wait(100); delete db.attendance[id]; commit(); },
+    async checkIn(id, data) {
+      await wait(350); need();
+      const c = db.classes[data.classId], s = attOpen(c);
+      // Mismas validaciones que las reglas de Firestore
+      if (db.attendance[id]) throw err('permission-denied');
+      if (!c || !s || data.studentId !== current.uid || !(db.users[current.uid]?.classIds || []).includes(c.id)
+        || data.dateKey !== s.dateKey || data.status !== s.status) throw err('permission-denied');
+      db.attendance[id] = { id, ...clone(data), at: Date.now() }; commit();
     },
 
     // ---------- Prácticas empresariales ----------

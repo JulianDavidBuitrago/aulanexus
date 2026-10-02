@@ -10,6 +10,7 @@ import {
 , isReturned, returnNotice
 } from './components.js';
 import { collectDrive, driveCards, parseDriveUrl, driveHelp } from './drive.js';
+import { studentAttendanceHTML, attendanceBanner } from './asistencia.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
 export const routes = {
@@ -168,6 +169,7 @@ function home(el) {
       </div>
       <div class="hero-actions"><a class="btn" href="#/calificaciones">${icon('award')}Mis notas</a><a class="btn btn-primary" href="#/clases">${icon('book')}Mis clases</a></div>
     </section>
+    <div id="h-att"></div>
     ${S.profile.phone ? '' : `<div class="callout warn">${icon('phone')}<div><b>Registre su número de celular.</b> Su docente lo necesita para contactarlo en caso necesario. <a href="#/perfil">Completar en Mi perfil</a></div></div>`}
     <section class="stats" id="h-stats"></section>
     <section class="grid-2">
@@ -179,6 +181,8 @@ function home(el) {
   el.addEventListener('click', (e) => { if (e.target.closest('[data-join-open]')) joinModal(); });
 
   function update() {
+    const ab = el.querySelector('#h-att'), abHTML = attendanceBanner();
+    if (ab && ab.dataset.h !== abHTML) { ab.innerHTML = abHTML; ab.dataset.h = abHTML; }
     const act = activeMine();
     const graded = S.mySubs.filter((s) => s.grade != null);
     ui.stats(el.querySelector('#h-stats'), [
@@ -263,6 +267,7 @@ function classView(el, id) {
   <div class="stack">
     <div><a class="back-link" href="#/clases">${icon('arrowLeft')}Mis clases</a><section class="hero" id="cv-hero"></section></div>
     <div id="cv-arch"></div>
+    <div id="cv-att"></div>
     <div>
       <div class="filter-row">
         <div class="segmented" id="cv-filter">
@@ -292,6 +297,8 @@ function classView(el, id) {
       return;
     }
     ui.setCrumb(c.name, `MIS CLASES / ${c.code || ''}`);
+    const attBox = $('#cv-att'), attHTML = studentAttendanceHTML(c);
+    if (attBox && attBox.dataset.h !== attHTML && !attBox.querySelector('[disabled]')) { attBox.innerHTML = attHTML; attBox.dataset.h = attHTML; }
     const tasks = tasksOf(id);
     const a = avg(tasks.map((t) => subOf(t.id)?.grade).filter((g) => g != null));
     const hero = $('#cv-hero');

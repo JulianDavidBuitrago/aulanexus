@@ -13,6 +13,7 @@ import { passwordField, bindPassword, analyze } from './password.js';
 import { promoteToTeacher } from './views-admin.js';
 import { pickFromDrive, driveCards, pickerConfigured } from './drive.js';
 import { audienceHTML, bindAudience, sendPostEmail, mailResultText } from './emailer.js';
+import { attendanceFieldsHTML, bindAttendanceFields, readAttendanceFields, attendancePanel, scheduleText, openSession } from './asistencia.js';
 
 export const routes = {
   '': dashboard,
@@ -80,19 +81,25 @@ function classForm(c = null) {
         <div class="field span-2"><span class="label">Color de identificación</span>
           <div class="color-swatches">${CLASS_COLORS.map((k) => `<label style="--c:${colorVar(k)}" title="${k}"><input type="radio" name="cf-color" value="${k}" ${k === color ? 'checked' : ''}>${icon('check')}</label>`).join('')}</div>
         </div>
+        <div class="field span-2"><span class="label">Asistencia</span>${attendanceFieldsHTML(c?.attendance || {})}</div>
       </div>`,
     footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save data-loading="Guardando…">${icon('check')}${c ? 'Guardar cambios' : 'Crear clase'}</button>`,
     onMount(el, m) {
+      bindAttendanceFields(el);
       el.querySelector('[data-save]').addEventListener('click', (e) => {
         const name = el.querySelector('#cf-name'), code = el.querySelector('#cf-code');
         ui.clearErrors(el);
         let ok = true;
         if (name.value.trim().length < 3) { ui.fieldError(name, 'Escriba el nombre de la clase.'); ok = false; }
         if (!code.value.trim()) { ui.fieldError(code, 'Escriba el código o grupo.'); ok = false; }
+        const att = readAttendanceFields(el, c?.attendance || {});
+        if (att.error) { ok = false; el.querySelector('[data-att-cfg]').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
         if (!ok) return;
+        const sched = el.querySelector('#cf-sched').value.trim() || scheduleText(att.attendance);
         const data = {
+          attendance: att.attendance,
           name: name.value.trim(), code: code.value.trim().toUpperCase(),
-          room: el.querySelector('#cf-room').value.trim(), schedule: el.querySelector('#cf-sched').value.trim(),
+          room: el.querySelector('#cf-room').value.trim(), schedule: sched,
           description: el.querySelector('#cf-desc').value.trim(), color: el.querySelector('[name=cf-color]:checked')?.value || 'violet'
         };
         ui.withLoading(e.currentTarget, async () => {
@@ -326,6 +333,7 @@ function classDetail(el, id) {
         <button class="active" data-tab="posts">${icon('layers')}Publicaciones <span class="n" data-n="posts">0</span></button>
         <button data-tab="students">${icon('users')}Estudiantes <span class="n" data-n="students">0</span></button>
         <button data-tab="grades">${icon('table')}Calificaciones</button>
+        <button data-tab="attendance">${icon('userCheck')}Asistencia <i class="tab-live hidden" data-att-live title="Registro abierto"></i></button>
       </div>
       <div class="tab-panel" data-panel="posts">
         <div class="stack">
@@ -377,8 +385,10 @@ function classDetail(el, id) {
           <div id="gb"></div>
         </div>
       </div>
+      <div class="tab-panel hidden" data-panel="attendance"><div id="att-panel"></div></div>
     </div>
   </div>`;
+  const att = attendancePanel(el.querySelector('#att-panel'), id);
   const $ = (s) => el.querySelector(s);
 
   // Pestañas
@@ -387,6 +397,7 @@ function classDetail(el, id) {
     tab = b.dataset.tab;
     el.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('active', x === b));
     el.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
+    if (tab === 'attendance') att.update();
   });
 
   // Compositor
@@ -567,9 +578,11 @@ function classDetail(el, id) {
     }
     renderStudents();
     renderGradebook();
+    el.querySelector('[data-att-live]')?.classList.toggle('hidden', !openSession(c));
+    if (tab === 'attendance' && !el.querySelector('#att-panel')?.contains(document.activeElement)) att.update();
   }
   update();
-  return { update, destroy: unsub };
+  return { update, destroy: () => { unsub(); att.destroy(); } };
 }
 
 function csvCell(v) {

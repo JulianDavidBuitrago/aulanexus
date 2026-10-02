@@ -216,6 +216,15 @@ export function createBackend() {
     markEmailed: (id, n) => updateDoc(doc(db, 'posts', id), { lastEmailAt: serverTimestamp(), lastEmailCount: n }),
     idToken: () => auth.currentUser.getIdToken(),
 
+    // ---------- Asistencia ----------
+    // filters: { classId, ownerId } (docente) o { studentId } (estudiante)
+    watchAttendance: (filters, cb) => onSnapshot(query(collection(db, 'attendance'), ...Object.entries(filters).map(([k, v]) => where(k, '==', v))),
+      (qs) => cb(list(qs)), (e) => { fail(e); cb([]); }),
+    setAttendance: (id, data) => setDoc(doc(db, 'attendance', id), { ...data, at: serverTimestamp() }, { merge: true }),
+    deleteAttendance: (id) => deleteDoc(doc(db, 'attendance', id)),
+    // El estudiante solo puede crear su registro (las reglas validan día, hora y estado)
+    checkIn: (id, data) => setDoc(doc(db, 'attendance', id), { ...data, at: serverTimestamp() }),
+
     // ---------- Prácticas empresariales ----------
     // field: 'ownerId' (docente) o 'studentId' (estudiante)
     watchPractices: (field, value, cb) => onSnapshot(query(collection(db, 'practices'), where(field, '==', value)), (qs) => cb(qs.docs.map(plainPractice), null), (e) => { fail(e); cb([], e); }),
