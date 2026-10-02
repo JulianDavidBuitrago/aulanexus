@@ -43,7 +43,12 @@ export const tasksOf = (cid) => S.posts.filter((p) => p.classId === cid && p.typ
 export const studentById = (id) => S.students.find((s) => s.uid === id);
 
 // ---------- Propiedad de clases (cada docente gestiona las suyas) ----------
-export const isMine = (c) => !!c && (c.ownerId === S.user?.uid || (S.isAdmin && !c.ownerId));
+// Dueño: quien creó la clase. Colaborador: docente invitado por el dueño (class.coTeachers),
+// con las mismas acciones sobre la clase salvo archivarla y gestionar a los colaboradores.
+export const isOwner = (c) => !!c && (c.ownerId === S.user?.uid || (S.isAdmin && !c.ownerId));
+export const isCoTeacher = (c) => !!c && !isOwner(c) && !!S.user && (c.coTeachers || []).includes(S.user.uid);
+export const isMine = (c) => isOwner(c) || isCoTeacher(c);
+export const coClasses = () => S.classes.filter(isCoTeacher);
 export const myClasses = () => S.classes.filter(isMine);
 export const ownerOf = (classId) => classById(classId)?.ownerId || S.user?.uid;
 export const selfRegOpen = () => S.settings?.allowSelfRegistration !== false;

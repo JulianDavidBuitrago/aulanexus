@@ -7,7 +7,7 @@ import { codeKey, docKey, uid as newId } from './util.js';
 import { emptyProposal, defaultFinal, currentPeriod } from './practica-model.js';
 import { openSession as attOpen, sessionKeys as attKeys, localParts as attLocal, keyOf as attKey, toMin as attMin } from './asistencia-model.js';
 
-const KEY = 'aulanexus-demo-v6';
+const KEY = 'aulanexus-demo-v7';
 const SESSION = 'aulanexus-demo-session';
 export const DEMO_ACCOUNTS = {
   admin: { email: TEACHER_EMAIL, password: 'Docente#2026' },
@@ -118,7 +118,7 @@ function seed() {
   const classes = [
     { id: 'c-ihm', name: 'Interacción Humano-Máquina', code: '232G8F', schedule: 'Lunes · 7:00 – 10:00', room: 'Bloque D · Sala 3', color: 'violet', description: 'Principios de usabilidad, diseño centrado en el usuario, prototipado y evaluación heurística.' },
     { id: 'c-req', name: 'Ingeniería de Requisitos', code: 'IRQ-01', schedule: 'Martes · 14:00 – 17:00', room: 'Bloque C · 204', color: 'cyan', description: 'Elicitación, especificación, validación y gestión de requisitos de software.' },
-    { id: 'c-saw', name: 'Seguridad en Aplicaciones Web', code: 'SAW-02', schedule: 'Jueves · 18:00 – 21:00', room: 'Laboratorio de Redes', color: 'pink', description: 'OWASP Top 10, autenticación segura, criptografía aplicada y pruebas de penetración éticas.' },
+    { id: 'c-saw', name: 'Seguridad en Aplicaciones Web', code: 'SAW-02', schedule: 'Jueves · 18:00 – 21:00', room: 'Laboratorio de Redes', color: 'pink', description: 'OWASP Top 10, autenticación segura, criptografía aplicada y pruebas de penetración éticas.', coTeachers: ['t-carlos'], coTeacherInfo: [{ uid: 't-carlos', name: 'Carlos Andrés Mejía Ríos', email: DEMO_ACCOUNTS.teacher.email }] },
     { id: 'c-fti', name: 'Fundamentos de TI', code: 'FTI-2026-1', schedule: 'Viernes · 8:00 – 11:00', room: 'Bloque A · 101', color: 'emerald', description: 'Curso del periodo 2026-1.', archived: true, archivedAt: now - 60 * D },
     { id: 'c-bd', name: 'Bases de Datos', code: 'BD-01', schedule: 'Miércoles · 10:00 – 12:00', room: 'Bloque B · 305', color: 'amber', description: 'Modelo entidad-relación, normalización y SQL.', ownerId: 't-carlos', ownerName: 'Carlos Andrés Mejía Ríos' }
   ];
@@ -306,6 +306,9 @@ export function createBackend() {
   }
   const need = () => { if (!current) throw err('permission-denied'); };
 
+  // ¿El usuario actual enseña en la clase? (dueño, colaborador o administrador)
+  const teaches = (cid) => { const c = db.classes[cid]; return !!c && (current?.uid === ADMIN_UID || c.ownerId === current?.uid || (c.coTeachers || []).includes(current?.uid)); };
+
   return {
     isDemo: true,
     reset() { store.del(KEY); store.del(SESSION); location.hash = '#/login'; location.reload(); },
@@ -428,18 +431,34 @@ export function createBackend() {
     watchClasses: (cb) => watch(() => values('classes'), cb),
     async listOpenClasses() { await wait(300); return values('classes').filter((c) => !c.archived); },
     async createClass(data) { await wait(); const id = 'c-' + newId(); db.classes[id] = { id, ...data, archived: false, createdAt: Date.now() }; commit(); return { id }; },
-    async updateClass(id, data) { await wait(); Object.assign(db.classes[id], data); commit(); },
+    async updateClass(id, data) {
+      await wait(); need();
+      const c = db.classes[id];
+      if (!c) throw err('permission-denied');
+      // Mismas reglas que Firestore: el colaborador no cambia dueño, colaboradores ni archivo (salvo retirarse él mismo)
+      if (c.ownerId !== current.uid && current.uid !== ADMIN_UID) {
+        if (!(c.coTeachers || []).includes(current.uid)) throw err('permission-denied');
+        const leaving = Object.keys(data).every((k) => ['coTeachers', 'coTeacherInfo'].includes(k))
+          && JSON.stringify(data.coTeachers) === JSON.stringify((c.coTeachers || []).filter((u) => u !== current.uid));
+        if (!leaving && ['ownerId', 'ownerName', 'coTeachers', 'coTeacherInfo', 'archived', 'archivedAt'].some((k) => k in data)) throw err('permission-denied');
+      }
+      Object.assign(c, clone(data)); commit();
+    },
+    async findTeacherByEmail(email) { await wait(300); need(); const e = email.trim().toLowerCase(); return clone(values('users').find((u) => u.role === 'teacher' && u.email === e) || null); },
 
     watchPostsByClass: (cid, cb) => watch(() => values('posts').filter((p) => p.classId === cid), cb),
     watchAllPosts: (cb) => watch(() => values('posts'), cb),
     watchPostsByOwner: (uid, cb) => watch(() => values('posts').filter((p) => p.ownerId === uid), cb),
-    async createPost(p) { await wait(); const id = 'p-' + newId(); db.posts[id] = { id, ...p, createdAt: Date.now() }; commit(); return id; },
-    async deletePost(id) { await wait(); delete db.posts[id]; commit(); },
+    async createPost(p) { await wait(); if (!teaches(p.classId) || p.ownerId !== db.classes[p.classId].ownerId) throw err('permission-denied'); const id = 'p-' + newId(); db.posts[id] = { id, ...p, createdAt: Date.now() }; commit(); return id; },
+    async deletePost(id) { await wait(); if (!teaches(db.posts[id]?.classId)) throw err('permission-denied'); delete db.posts[id]; commit(); },
     async markEmailed(id, n) { if (db.posts[id]) { Object.assign(db.posts[id], { lastEmailAt: Date.now(), lastEmailCount: n }); commit(); } },
     async idToken() { return 'demo-token'; },
-    async updatePost(id, data) { await wait(); if (!db.posts[id]) throw err('permission-denied'); Object.assign(db.posts[id], clone(data), { updatedAt: Date.now() }); commit(); },
+    async updatePost(id, data) { await wait(); if (!db.posts[id] || !teaches(db.posts[id].classId)) throw err('permission-denied'); Object.assign(db.posts[id], clone(data), { updatedAt: Date.now() }); commit(); },
 
-    watchSubmissionsBy: (field, value, cb, ownerId) => watch(() => values('submissions').filter((s) => s[field] === value && (!ownerId || s.ownerId === ownerId)), cb),
+    watchSubmissionsBy: (field, value, cb, scope) => {
+      const sc = typeof scope === 'string' ? { ownerId: scope } : (scope || {});
+      return watch(() => values('submissions').filter((s) => s[field] === value && (!sc.ownerId || s.ownerId === sc.ownerId) && (!sc.classId || s.classId === sc.classId)), cb);
+    },
     async submit(s) {
       await wait(600);
       const id = `${s.postId}_${s.studentId}`;
@@ -451,6 +470,7 @@ export function createBackend() {
     async grade(g) {
       await wait(450);
       const id = `${g.postId}_${g.studentId}`;
+      if (!teaches(g.classId || db.submissions[id]?.classId)) throw err('permission-denied');
       db.submissions[id] = { id, ...(db.submissions[id] || {}), ...clone(g), status: 'calificado', gradedAt: Date.now() };
       commit();
     },
@@ -458,7 +478,7 @@ export function createBackend() {
       await wait(450);
       const id = `${r.postId}_${r.studentId}`;
       const cur = db.submissions[id];
-      if (!cur || (db.classes[cur.classId]?.ownerId !== current?.uid && current?.uid !== ADMIN_UID)) throw err('permission-denied');
+      if (!cur || !teaches(cur.classId)) throw err('permission-denied');
       Object.assign(cur, { status: 'devuelto', grade: null, gradedAt: null, submittedAt: null, prevSubmittedAt: r.prevSubmittedAt || null,
         returnNote: r.returnNote, returnDueAt: r.returnDueAt || null, returnCount: r.returnCount, returnedAt: Date.now() });
       commit();
@@ -487,7 +507,7 @@ export function createBackend() {
     async setAttendance(id, data) {
       await wait(120); need();
       const c = db.classes[data.classId];
-      if (!c || (c.ownerId !== current.uid && current.uid !== ADMIN_UID)) throw err('permission-denied');
+      if (!c || !teaches(c.id)) throw err('permission-denied');
       db.attendance[id] = { id, ...(db.attendance[id] || {}), ...clone(data), at: Date.now() }; commit();
     },
     async deleteAttendance(id) { await wait(100); delete db.attendance[id]; commit(); },

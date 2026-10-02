@@ -1,5 +1,6 @@
 // Vistas del docente
-import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notifyClass, byName, myClasses, isMine, teacherName, myStudents, ownerOf } from './state.js';
+import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notifyClass, byName, myClasses, isMine, isOwner, isCoTeacher, teacherName, myStudents, ownerOf } from './state.js';
+import { scopedSubs, coTeachersDialog, leaveClass, coInfo } from './coteach.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { LIMITS } from './firebase-config.js';
@@ -53,6 +54,9 @@ async function classActions(e) {
   const act = b.dataset.act;
   if (act === 'new-class') { classForm(); return true; }
   if (act === 'edit-class') { classForm(classById(id)); return true; }
+  if (act === 'co-teachers') { coTeachersDialog(id); return true; }
+  if (act === 'leave-class') { leaveClass(id); return true; }
+  if ((act === 'archive-class' || act === 'restore-class') && !isOwner(classById(id))) { ui.toast('Solo el dueño de la clase puede archivarla', 'warn'); return true; }
   if (act === 'archive-class') {
     const c = classById(id);
     const ok = await ui.confirmDialog({ title: 'Archivar clase', iconName: 'archive', confirm: 'Archivar', message: `<b>${esc(c.name)}</b> pasará a la sección de archivadas. Los estudiantes conservarán acceso de solo lectura a su material y calificaciones, pero no podrán realizar nuevas entregas.` });
@@ -324,7 +328,7 @@ function classDetail(el, id) {
   let composerFiles = [];
   let composerDrive = [];
   let type = 'anuncio';
-  const unsub = ctx.B.watchSubmissionsBy('classId', id, (l) => { subs = l; update(); }, S.user.uid);
+  const subsQ = scopedSubs('classId', id, (l) => { subs = l; update(); });
 
   el.innerHTML = `
   <div class="stack">
@@ -431,7 +435,7 @@ function classDetail(el, id) {
       dueAt = new Date(d.value).getTime();
     }
     const links = cleanLinks($('#cp-links').value);
-    const post = { classId: id, ownerId: ownerOf(id), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, driveFiles: composerDrive, dueAt };
+    const post = { classId: id, ownerId: ownerOf(id), authorId: S.user.uid, authorName: teacherName(), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, driveFiles: composerDrive, dueAt };
     const mail = audience.value();
     if (mail.mode === 'some' && !mail.uids.length) { ui.toast('Sin destinatarios', 'warn', 'Seleccione al menos un estudiante para el correo o elija "No enviar".'); return; }
     ui.withLoading(e.currentTarget, async () => {
@@ -543,8 +547,10 @@ function classDetail(el, id) {
     const c = classById(id);
     if (!S.ready.classes || !$('#cd-hero')) return;
     if (!c) { el.innerHTML = empty('alert', 'Clase no encontrada', 'Es posible que haya sido eliminada.', `<a class="btn" href="#/clases">${icon('arrowLeft')}Volver</a>`); return; }
-    if (!isMine(c)) { el.innerHTML = empty('lock', 'Clase de otro docente', 'Solo el docente dueño de la clase puede gestionarla.', `<a class="btn" href="#/clases">${icon('arrowLeft')}Mis clases</a>`); return; }
+    if (!isMine(c)) { el.innerHTML = empty('lock', 'Clase de otro docente', 'Solo el docente dueño de la clase y sus colaboradores pueden gestionarla.', `<a class="btn" href="#/clases">${icon('arrowLeft')}Mis clases</a>`); return; }
+    subsQ.sync();
     ui.setCrumb(c.name, `CLASES / ${c.code || ''}`);
+    const co = isCoTeacher(c), team = coInfo(c);
     const studs = studentsOf(id), posts = postsOf(id), tasks = tasksOf(id);
     const hero = $('#cd-hero');
     hero.style.setProperty('--hc', colorVar(c.color));
@@ -559,11 +565,15 @@ function classDetail(el, id) {
           ${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}
           <span>${icon('users')}${studs.length} estudiantes</span>
           <span>${icon('clipboard')}${tasks.length} tareas</span>
+          ${co ? `<span class="badge b-info">${icon('users')}Colaborador · clase de ${esc(c.ownerName || 'otro docente')}</span>`
+            : team.length ? `<span title="${esc(team.map((t) => t.name).join(', '))}">${icon('users')}${team.length} ${team.length === 1 ? 'docente colaborador' : 'docentes colaboradores'}</span>` : ''}
         </div>
       </div>
       <div class="hero-actions">
         <button class="btn" data-act="edit-class" data-id="${c.id}">${icon('edit')}Editar</button>
-        ${c.archived ? `<button class="btn" data-act="restore-class" data-id="${c.id}">${icon('restore')}Restaurar</button>` : `<button class="btn" data-act="archive-class" data-id="${c.id}">${icon('archive')}Archivar</button>`}
+        ${co ? `<button class="btn" data-act="leave-class" data-id="${c.id}">${icon('logout')}Salir de la clase</button>`
+          : `<button class="btn" data-act="co-teachers" data-id="${c.id}">${icon('userPlus')}Docentes</button>
+        ${c.archived ? `<button class="btn" data-act="restore-class" data-id="${c.id}">${icon('restore')}Restaurar</button>` : `<button class="btn" data-act="archive-class" data-id="${c.id}">${icon('archive')}Archivar</button>`}`}
       </div>`;
     el.querySelector('[data-n="posts"]').textContent = posts.length;
     el.querySelector('[data-n="students"]').textContent = studs.length;
@@ -586,7 +596,7 @@ function classDetail(el, id) {
     if (tab === 'attendance' && !el.querySelector('#att-panel')?.contains(document.activeElement)) att.update();
   }
   update();
-  return { update, destroy: () => { unsub(); att.destroy(); } };
+  return { update, destroy: () => { subsQ.stop(); att.destroy(); } };
 }
 
 function csvCell(v) {
@@ -613,7 +623,7 @@ function exportGradebook(classId, subs) {
 function taskDetail(el, postId) {
   let subs = [];
   let filter = 'all';
-  const unsub = ctx.B.watchSubmissionsBy('postId', postId, (l) => { subs = l; update(); }, S.user.uid);
+  const subsQ = scopedSubs('postId', postId, (l) => { subs = l; update(); });
   el.innerHTML = `
   <div class="stack">
     <div><a class="back-link" id="td-back" href="#/clases">${icon('arrowLeft')}Volver a la clase</a><div id="td-post"></div></div>
@@ -658,6 +668,7 @@ function taskDetail(el, postId) {
   });
 
   function update() {
+    subsQ.sync();
     const post = S.posts.find((p) => p.id === postId);
     if (!S.ready.posts || !$('#td-list')) return;
     if (!post) { el.innerHTML = empty('alert', 'Tarea no encontrada', 'Es posible que haya sido eliminada.', `<a class="btn" href="#/clases">${icon('arrowLeft')}Volver</a>`); return; }
@@ -702,7 +713,7 @@ function taskDetail(el, postId) {
       }).join('')}</tbody></table></div>` : empty('inbox', 'Nada por aquí', 'No hay estudiantes en esta categoría.');
   }
   update();
-  return { update, destroy: unsub };
+  return { update, destroy: () => subsQ.stop() };
 }
 
 // =====================================================================
@@ -769,7 +780,7 @@ function studentsView(el) {
 // =====================================================================
 function studentDetail(el, uid) {
   let subs = [];
-  const unsub = ctx.B.watchSubmissionsBy('studentId', uid, (l) => { subs = l; update(); }, S.user.uid);
+  const subsQ = scopedSubs('studentId', uid, (l) => { subs = l; update(); });
   el.innerHTML = `<div class="stack"><div><a class="back-link" href="#/estudiantes">${icon('arrowLeft')}Consulta de estudiantes</a><div id="sd">${skeletonLines(3)}</div></div></div>`;
   el.addEventListener('click', async (e) => {
     const r = e.target.closest('[data-review]');
@@ -793,6 +804,7 @@ function studentDetail(el, uid) {
   });
 
   function update() {
+    subsQ.sync();
     if (!S.ready.students) return;
     const s = studentById(uid);
     if (!s) { el.querySelector('#sd').innerHTML = empty('user', 'Estudiante no encontrado'); return; }
@@ -848,7 +860,7 @@ function studentDetail(el, uid) {
       </div>`;
   }
   update();
-  return { update, destroy: unsub };
+  return { update, destroy: () => subsQ.stop() };
 }
 
 // =====================================================================

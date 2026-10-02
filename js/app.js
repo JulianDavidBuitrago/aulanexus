@@ -1,5 +1,5 @@
 // Núcleo de la aplicación: sesión, suscripciones en tiempo real, estructura y enrutador
-import { S, ctx, setUpdater, emit, teacherName } from './state.js';
+import { S, ctx, setUpdater, emit, teacherName, coClasses } from './state.js';
 import { TEACHER_EMAIL, TEACHER_NAME, APP } from './firebase-config.js';
 import * as ui from './ui.js';
 import { icon, LOGO } from './icons.js';
@@ -17,6 +17,10 @@ let current = null;          // vista montada { update, destroy }
 let subs = [];               // suscripciones globales
 let postSubs = new Map();    // (estudiante) suscripciones por clase
 let postsByClass = new Map();
+// (docente) clases compartidas como colaborador: publicaciones y entregas pendientes por clase
+let coSubs = new Map();      // classId → { sig, un[] }
+let coPosts = new Map(), coPend = new Map();
+let ownPosts = [], ownPending = [], coActive = false;
 let shellMounted = false;
 let navSig = '';
 let seenNotifs = null;
@@ -45,6 +49,8 @@ function clearSubs() {
   subs = [];
   postSubs.forEach((u) => u());
   postSubs.clear(); postsByClass.clear();
+  coSubs.forEach((x) => x.un.forEach((u) => u()));
+  coSubs.clear(); coPosts.clear(); coPend.clear(); ownPosts = []; ownPending = []; coActive = false;
 }
 function destroyCurrent() { try { current?.destroy?.(); } catch { /* */ } current = null; }
 
@@ -74,7 +80,7 @@ function onAuth(user) {
 
   const B = ctx.B;
   S.isAdmin = (user.email || '').trim().toLowerCase() === String(TEACHER_EMAIL || '').trim().toLowerCase();
-  subs.push(B.watchClasses((l) => { S.classes = l; S.ready.classes = true; emit(); }));
+  subs.push(B.watchClasses((l) => { S.classes = l; S.ready.classes = true; if (coActive) syncCoTeaching(); emit(); }));
   subs.push(B.watchNotifications(user.uid, handleNotifs));
 
   let started = false;
@@ -121,8 +127,10 @@ function startTeacher(user) {
   subs.push(B.watchStudents((l) => { S.students = l; S.ready.students = true; emit(); }));
   const tick = setInterval(emit, 30000); subs.push(() => clearInterval(tick)); // abre/cierra sesiones de asistencia a tiempo
   subs.push(B.watchMetrics((m, e) => { S.metrics = m; S.metricsError = e ? (e.code || e.message) : null; emit(); }));
-  subs.push(B.watchPostsByOwner(user.uid, (l) => { S.posts = l; S.ready.posts = true; emit(); }));
-  subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { S.pendingSubs = l; S.ready.pending = true; emit(); }, user.uid));
+  subs.push(B.watchPostsByOwner(user.uid, (l) => { ownPosts = l; S.ready.posts = true; mergeTeacher(); }));
+  subs.push(B.watchSubmissionsBy('status', 'entregado', (l) => { ownPending = l; S.ready.pending = true; mergeTeacher(); }, user.uid));
+  coActive = true;
+  syncCoTeaching();
   if (S.isAdmin) subs.push(B.watchTeachers((l) => { S.teachers = l; S.ready.teachers = true; emit(); }));
   subs.push(B.watchPractices('ownerId', user.uid, (l, e) => { S.practices = l; S.practicesError = e ? (e.code || e.message) : null; S.ready.practices = true; emit(); }));
   subs.push(B.watchVisits('ownerId', user.uid, (l) => { S.visits = l; S.ready.visits = true; emit(); }));
@@ -133,6 +141,27 @@ function startStudent(user) {
   subs.push(ctx.B.watchAttendance({ studentId: user.uid }, (l) => { S.myAttendance = l; S.ready.attendance = true; emit(); }));
   subs.push(ctx.B.watchPractices('studentId', user.uid, (l, e) => { S.practices = l; S.practicesError = e ? (e.code || e.message) : null; S.ready.practices = true; emit(); }));
   subs.push(ctx.B.watchVisits('studentId', user.uid, (l) => { S.visits = l; S.ready.visits = true; emit(); }));
+}
+
+// Clases donde el docente es colaborador: publicaciones y entregas por calificar de cada una
+// (las reglas exigen filtrar por classId para comprobar que la clase está compartida con él)
+function syncCoTeaching() {
+  const want = new Map(coClasses().map((c) => [c.id, c.ownerId]));
+  for (const [cid, x] of coSubs) if (want.get(cid) !== x.sig) { x.un.forEach((u) => u()); coSubs.delete(cid); coPosts.delete(cid); coPend.delete(cid); }
+  for (const [cid, owner] of want) {
+    if (coSubs.has(cid)) continue;
+    coSubs.set(cid, { sig: owner, un: [
+      ctx.B.watchPostsByClass(cid, (l) => { coPosts.set(cid, l); mergeTeacher(); }),
+      ctx.B.watchSubmissionsBy('status', 'entregado', (l) => { coPend.set(cid, l); mergeTeacher(); }, { ownerId: owner, classId: cid })
+    ] });
+  }
+  mergeTeacher();
+}
+function mergeTeacher() {
+  const uniq = (arr) => [...new Map(arr.map((x) => [x.id, x])).values()];
+  S.posts = uniq([...ownPosts, ...[...coPosts.values()].flat()]);
+  S.pendingSubs = uniq([...ownPending, ...[...coPend.values()].flat()]);
+  emit();
 }
 
 // Suscripción a publicaciones de cada clase inscrita (reglas: una consulta por clase)

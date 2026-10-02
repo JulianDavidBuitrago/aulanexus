@@ -112,7 +112,17 @@ function configModal(c) {
 // ---------------------------------------------------------------------
 export function attendancePanel(root, classId) {
   let recs = [], ready = false, sel = null;
-  const unsub = ctx.B.watchAttendance({ classId, ownerId: classById(classId)?.ownerId || S.user.uid }, (l) => { recs = l; ready = true; render(); });
+  // La consulta usa el dueño de la clase (también para colaboradores); se abre cuando la clase está cargada
+  let unsub = null, subOwner = null;
+  const ensureSub = () => {
+    const c = classById(classId);
+    if (!c && !S.ready.classes) return;
+    const owner = c?.ownerId || S.user.uid;
+    if (owner === subOwner) return;
+    unsub?.(); subOwner = owner;
+    unsub = ctx.B.watchAttendance({ classId, ownerId: owner }, (l) => { recs = l; ready = true; render(); });
+  };
+  ensureSub();
 
   const rec = (uid, key) => recs.find((r) => r.studentId === uid && r.dateKey === key);
   async function setStatus(c, s, key, status) {
@@ -268,7 +278,7 @@ export function attendancePanel(root, classId) {
     if (!ready) root.querySelector('.att-roll')?.classList.add('loading');
   }
   render();
-  return { update: render, destroy: unsub };
+  return { update: () => { ensureSub(); render(); }, destroy: () => unsub?.() };
 }
 
 // ---------------------------------------------------------------------

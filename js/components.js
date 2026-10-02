@@ -3,7 +3,7 @@ import { icon } from './icons.js';
 import { hueOf, toast, modal, withLoading } from './ui.js';
 import { esc, initials, fmtDate, timeAgo, timeLeft, fmtGrade, gradeTone, linkify, langOf, fmtBytes, extOf, download, errMsg, docLabel, youtubeId } from './util.js';
 import { LIMITS } from './firebase-config.js';
-import { S, ctx, classById, ownerOf } from './state.js';
+import { S, ctx, classById, ownerOf, isOwner, isCoTeacher } from './state.js';
 import { collectDrive, driveCards, parseDriveUrl } from './drive.js';
 import { emailConfigured } from './emailer.js';
 
@@ -59,7 +59,8 @@ export function classCard(c, { students = [], posts = 0, manage = false, showOwn
   <article class="class-card" style="--c:${colorVar(c.color)}" data-href="#/clase/${c.id}" tabindex="0">
     <div class="cc-top">
       <span class="chip mono chip-c">${icon('hash')}${esc(c.code || 'CLASE')}</span>
-      ${c.archived ? `<span class="badge b-warning">${icon('archive')}Archivada</span>` : `<span class="badge b-success dot">Activa</span>`}
+      <span class="cc-badges">${isCoTeacher(c) ? `<span class="badge b-info" title="Clase de ${esc(c.ownerName || 'otro docente')}">${icon('users')}Colaborador</span>` : isOwner(c) && (c.coTeachers || []).length ? `<span class="badge b-accent" title="Docentes colaboradores">${icon('users')}+${c.coTeachers.length}</span>` : ''}
+      ${c.archived ? `<span class="badge b-warning">${icon('archive')}Archivada</span>` : `<span class="badge b-success dot">Activa</span>`}</span>
     </div>
     <h3>${esc(c.name)}</h3>
     ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
@@ -67,11 +68,11 @@ export function classCard(c, { students = [], posts = 0, manage = false, showOwn
       ${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}
       ${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}
       <span>${icon('layers')}${posts} ${posts === 1 ? 'publicación' : 'publicaciones'}</span>
-      ${showOwner && c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}
+      ${(showOwner || isCoTeacher(c)) && c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}
     </div>
     ${manage ? `<div class="cc-actions">
       <button class="btn btn-sm" data-act="edit-class" data-id="${c.id}">${icon('edit')}Editar</button>
-      ${c.archived
+      ${!isOwner(c) ? '' : c.archived
         ? `<button class="btn btn-sm" data-act="restore-class" data-id="${c.id}">${icon('restore')}Restaurar</button>`
         : `<button class="btn btn-sm" data-act="archive-class" data-id="${c.id}">${icon('archive')}Archivar</button>`}
     </div>` : ''}
@@ -128,6 +129,7 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
           <span class="badge" style="padding:2px 8px">${t.label}</span>
           ${showClass && c ? `<span class="chip chip-c" style="--c:${colorVar(c.color)};padding:2px 8px">${esc(c.name)}</span>` : ''}
           <span title="${fmtDate(p.createdAt)}">${timeAgo(p.createdAt)}</span>
+          ${p.authorName && (p.authorId !== p.ownerId || (c?.coTeachers || []).length) ? `<span class="post-author">${icon('user')}${esc(p.authorName)}</span>` : ''}
           ${p.updatedAt ? `<span class="edited" title="Editado ${fmtDate(p.updatedAt)}">${icon('edit')}editado</span>` : ''}
           ${role === 'teacher' && p.lastEmailAt ? `<span class="mail-sent" title="Último aviso por correo: ${fmtDate(p.lastEmailAt)}">${icon('mail')}${p.lastEmailCount || 0}</span>` : ''}
         </div>

@@ -35,7 +35,7 @@ export const LIMITS = {
 
 
 export const EMAIL_RELAY = {
-  url: 'https://script.google.com/macros/s/AKfycby9mfNWlQmGr03Lyp4BEmq1T8BwTS3J7lZcmtyaGNIJ_WERgMtPxxd_y7TzZPz7DOCI/exec'
+  url: 'https://script.google.com/macros/s/AKfycbwR5ToqdJhI-po7lxecjfmTb1HdYH85Fjfi4DRSV2Ri0-3NgBCgfoEnE9ViJZuzLXqh/exec'
 };
 
 export const USAGE_RELAY = { url: 'https://script.google.com/macros/s/AKfycbwllkrk13bRNXvlkxHPPOirIFVQq62qJ6ejAwLEwSNR9WIK1JUYDqbYyRKjKTIKio0R/exec' };

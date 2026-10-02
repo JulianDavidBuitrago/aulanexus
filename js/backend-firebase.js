@@ -208,6 +208,11 @@ export function createBackend() {
 
     // ---------- Clases ----------
     watchClasses: (cb) => onSnapshot(collection(db, 'classes'), (qs) => cb(list(qs)), fail),
+    // Docente por correo (para invitarlo como colaborador de una clase)
+    async findTeacherByEmail(email) {
+      const qs = await getDocs(query(collection(db, 'users'), where('role', '==', 'teacher'), where('email', '==', email.trim().toLowerCase()), limit(1)));
+      return qs.empty ? null : plain(qs.docs[0]);
+    },
     async listOpenClasses() {
       const qs = await getDocs(query(collection(db, 'classes'), where('archived', '==', false)));
       return list(qs);
@@ -264,10 +269,13 @@ export function createBackend() {
     deleteVisit: (id) => deleteDoc(doc(db, 'visits', id)),
 
     // ---------- Entregas / calificaciones ----------
-    // ownerId: los docentes solo pueden consultar entregas de sus propias clases
-    watchSubmissionsBy: (field, value, cb, ownerId) => {
+    // scope: uid del dueño (string) o { ownerId, classId }. Los docentes solo consultan entregas de sus
+    // clases; un colaborador debe incluir classId para que las reglas verifiquen que la clase es compartida.
+    watchSubmissionsBy: (field, value, cb, scope) => {
+      const sc = typeof scope === 'string' ? { ownerId: scope } : (scope || {});
       const cons = [where(field, '==', value)];
-      if (ownerId && field !== 'ownerId') cons.push(where('ownerId', '==', ownerId));
+      if (sc.ownerId && field !== 'ownerId') cons.push(where('ownerId', '==', sc.ownerId));
+      if (sc.classId && field !== 'classId') cons.push(where('classId', '==', sc.classId));
       return onSnapshot(query(collection(db, 'submissions'), ...cons), (qs) => cb(list(qs)), fail);
     },
     submit: (s) => setDoc(doc(db, 'submissions', `${s.postId}_${s.studentId}`), {

@@ -1477,3 +1477,20 @@ textarea.mono-soft { font-family: var(--mono); font-size: 12.5px; }
 /* Consumo: botón "Actualizar ahora" en la cabecera del panel */
 .usage-panel .panel-head { flex-wrap: wrap; gap: 8px; }
 .usage-head-r { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ---------- Clases compartidas (docentes colaboradores) ---------- */
+.cc-badges { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.co-add { display: flex; gap: 8px; align-items: stretch; }
+.co-add .input-wrap { flex: 1; min-width: 0; }
+.co-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.co-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2, transparent); }
+.co-row.owner { border-style: dashed; }
+.co-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.co-who b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.co-who small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.post-author { display: inline-flex; align-items: center; gap: 4px; }
+.post-author .ic { width: 13px; height: 13px; }
+@media (max-width: 560px) {
+  .co-add { flex-direction: column; }
+  .co-row .btn { padding-inline: 8px; }
+}

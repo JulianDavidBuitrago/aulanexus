@@ -101,7 +101,9 @@ function submitModal(post) {
               text: ta.value.trim(), links, files: files.map(({ name, size, content }) => ({ name, size: size || content.length, content })), late: !!late,
               ...(prev?.returnCount ? { returnCount: prev.returnCount, lastReturnNote: prev.returnNote || prev.lastReturnNote || '' } : {})
             });
-            await ctx.B.addNotifications([{ userId: c?.ownerId || 'teacher', fromUid: S.user.uid, type: 'submission', title: `${returned ? 'Entrega corregida' : 'Nueva entrega'} · ${p.fullName}`, message: `${post.title} (${c?.name || ''})`, link: `#/tarea/${post.id}`, classId: post.classId }]).catch(() => {});
+            // Aviso al docente dueño y a los docentes colaboradores de la clase
+            const nt = { fromUid: S.user.uid, type: 'submission', title: `${returned ? 'Entrega corregida' : 'Nueva entrega'} · ${p.fullName}`, message: `${post.title} (${c?.name || ''})`, link: `#/tarea/${post.id}`, classId: post.classId };
+            await ctx.B.addNotifications([c?.ownerId || 'teacher', ...(c?.coTeachers || [])].map((userId) => ({ ...nt, userId }))).catch(() => {});
             ui.toast(returned ? 'Corrección enviada' : prev ? 'Entrega actualizada' : 'Entrega enviada', 'success', 'El docente fue notificado.');
             m.close();
           } catch (er) { ui.toast('No se pudo enviar', 'error', errMsg(er)); }
@@ -132,7 +134,7 @@ async function joinModal() {
   let open = [];
   try { open = await ctx.B.listOpenClasses(); } catch (er) { ui.toast('Error', 'error', errMsg(er)); return; }
   const mine = S.profile.classIds || [];
-  const avail = open.filter((c) => !mine.includes(c.id) && c.ownerId !== S.user.uid).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const avail = open.filter((c) => !mine.includes(c.id) && c.ownerId !== S.user.uid && !(c.coTeachers || []).includes(S.user.uid)).sort((a, b) => a.name.localeCompare(b.name, 'es'));
   ui.modal({
     title: 'Inscribirme en clases', subtitle: 'Seleccione las clases en las que está matriculado.', iconName: 'userPlus',
     body: avail.length ? `<div class="pick-list">${avail.map((c) => `
