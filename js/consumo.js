@@ -6,6 +6,7 @@ import * as cfg from './firebase-config.js';
 import { S, ctx, emit } from './state.js';
 import { icon } from './icons.js';
 import { esc, timeAgo } from './util.js';
+import { modal } from './ui.js';
 
 // Servicio de Apps Script que actualiza el consumo al pulsar "Actualizar ahora"
 const RELAY = cfg.USAGE_RELAY || {};
@@ -31,8 +32,25 @@ export async function refreshUsage() {
   return data;
 }
 
-const refreshBtn = () => (usageRelayConfigured()
-  ? `<button type="button" class="btn btn-sm" data-usage-refresh data-loading="Consultando…">${icon('restore')}Actualizar ahora</button>` : '');
+// El botón se muestra siempre; si falta USAGE_RELAY, al pulsarlo explica cómo configurarlo
+const refreshBtn = () => `<button type="button" class="btn btn-sm${usageRelayConfigured() ? ' btn-primary' : ''}" data-usage-refresh data-loading="Consultando…">${icon('restore')}Actualizar ahora</button>`;
+
+export function usageRelayHelp() {
+  const raw = String(RELAY.url || '').trim();
+  modal({
+    title: 'Configurar "Actualizar ahora"', iconName: 'chart',
+    body: `<div class="callout warn">${icon('alert')}<div>${raw
+      ? `La URL de <span class="mono">USAGE_RELAY</span> no es válida: <span class="mono">${esc(raw)}</span>. Debe empezar por <span class="mono">https://script.google.com/</span> y terminar en <span class="mono">/exec</span>.`
+      : `No se encontró <span class="mono">USAGE_RELAY</span> en <span class="mono">public/js/firebase-config.js</span> del sitio publicado.`}</div></div>
+      <ol class="steps-list" style="margin:14px 0 0 18px;line-height:1.7">
+        <li>En el proyecto de Apps Script de monitoreo: <b>Implementar → Nueva implementación → Aplicación web</b>, <i>Ejecutar como: Yo</i>, <i>Quién tiene acceso: Cualquier usuario</i>.</li>
+        <li>Copie la URL que termina en <span class="mono">/exec</span>.</li>
+        <li>Al final de su <span class="mono">public/js/firebase-config.js</span> agregue:<br><span class="mono" style="font-size:12px;word-break:break-all">export const USAGE_RELAY = { url: 'https://script.google.com/macros/s/…/exec' };</span></li>
+        <li>Suba el cambio a GitHub, espere a que termine <b>Actions</b> y recargue con <b>Ctrl + F5</b>.</li>
+      </ol>`,
+    footer: '<button class="btn btn-primary" data-close>Entendido</button>'
+  });
+}
 
 const LABEL = { reads: 'Lecturas', writes: 'Escrituras', deletes: 'Borrados' };
 const n = (v) => Number(v || 0).toLocaleString('es-CO');
@@ -108,6 +126,5 @@ export function usagePanelHTML() {
       <div><small>Borrados</small><b>${n(m.month?.deletes)}</b></div>
       <div><small>Promedio diario de lecturas</small><b>${n(avg)}</b></div>
     </div>
-    ${chart}
-    <p class="muted usage-note">${icon('info')}Al llegar al ${Math.round(th * 100)} % de cualquier límite diario se envía un correo de alerta al administrador y los docentes ven un aviso en su panel. En el plan Blaze estos límites son la parte gratuita: lo que los supere se cobra, sin interrumpir el servicio.</p>`;
+    ${chart}`;
 }

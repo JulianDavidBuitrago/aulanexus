@@ -10,7 +10,8 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, query,
-  where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion, arrayRemove, Timestamp
+  where, orderBy, limit, serverTimestamp, writeBatch, arrayUnion, arrayRemove, Timestamp,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager, terminate, clearIndexedDbPersistence
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { firebaseConfig, TEACHER_EMAIL } from './firebase-config.js';
 import { codeKey, docKey } from './util.js';
@@ -19,7 +20,12 @@ export function createBackend() {
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   auth.languageCode = 'es';
-  const db = getFirestore(app);
+  // Caché local persistente (IndexedDB): al recargar la página o volver a una vista, Firestore
+  // reanuda las consultas desde la caché y solo cobra los documentos que cambiaron (si la
+  // desconexión fue menor a 30 min). Sin ella, cada recarga vuelve a leer TODO.
+  let db;
+  try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+  catch (e) { console.warn('[Firestore] sin caché persistente:', e); db = getFirestore(app); }
   setPersistence(auth, browserLocalPersistence).catch(() => {});
 
   // Convierte Timestamps a milisegundos para la interfaz
@@ -51,7 +57,13 @@ export function createBackend() {
       return onAuthStateChanged(auth, (u) => { if (!suspended) cb(toUser(u)); });
     },
     login: (email, pass) => signInWithEmailAndPassword(auth, email.trim(), pass),
-    logout: () => signOut(auth),
+    // Al cerrar sesión se borra la caché local (equipos compartidos) y se recarga la página
+    async logout() {
+      await signOut(auth);
+      try { await terminate(db); await clearIndexedDbPersistence(db); } catch { /* otra pestaña abierta: se conserva */ }
+      location.replace(location.pathname + '#/login');
+      location.reload();
+    },
     resetPassword: (email) => sendPasswordResetEmail(auth, email.trim()),
 
     // Registro libre del estudiante (solo funciona si el administrador lo habilitó)
