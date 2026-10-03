@@ -293,8 +293,13 @@ export async function checkIn(classId, btn) {
       await ctx.B.checkIn(recId(c.id, s.dateKey, S.user.uid), { classId: c.id, ownerId: c.ownerId, studentId: S.user.uid, studentName: S.profile?.fullName || '', dateKey: s.dateKey, status: s.status, by: 'student' });
       ui.toast('Asistencia registrada', 'success', `${c.name} · ${ATT_STATUS[s.status].label}`);
     } catch (er) {
-      const dup = /permission|exists/i.test(er.code || er.message || '') && S.myAttendance.some((r) => r.id === recId(c.id, s.dateKey, S.user.uid));
-      ui.toast(dup ? 'Ya estaba registrada' : 'No se pudo registrar', dup ? 'info' : 'error', dup ? '' : errMsg(er));
+      // El registro rechazado aparece un instante en la caché local (escritura optimista) y luego se revierte:
+      // se espera la reversión antes de decidir si de verdad ya existía en el servidor.
+      await new Promise((r) => setTimeout(r, 1200));
+      const dup = S.myAttendance.some((r) => r.id === recId(c.id, s.dateKey, S.user.uid));
+      console.error('[Asistencia] registro rechazado', er.code || '', er.message || er, { classId: c.id, dateKey: s.dateKey, status: s.status });
+      ui.toast(dup ? 'Ya estaba registrada' : 'No se pudo registrar la asistencia', dup ? 'info' : 'error',
+        dup ? '' : /permission/i.test(er.code || er.message || '') ? 'La base de datos rechazó el registro (permisos). Avise a su docente.' : errMsg(er));
     }
   };
   return btn ? ui.withLoading(btn, run) : run();
