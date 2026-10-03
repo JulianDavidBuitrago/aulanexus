@@ -1524,3 +1524,5 @@ textarea.mono-soft { font-family: var(--mono); font-size: 12.5px; }
   .ev-b-row { grid-template-columns: 1fr 44px; }
   .ev-b-row .ev-b-bar, .ev-b-row > small { grid-column: 1 / -1; }
 }
+.my-sheet.inner { margin: 4px 0 16px; }
+.my-sheet .gradebook td, .my-sheet .gradebook th { text-align: center; }

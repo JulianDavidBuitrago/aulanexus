@@ -11,7 +11,7 @@ import {
 } from './components.js';
 import { collectDrive, driveCards, parseDriveUrl, driveHelp } from './drive.js';
 import { studentAttendanceHTML, attendanceBanner, periodText } from './asistencia.js';
-import { finalGrade, hasPlan, catOf, breakdownHTML } from './evaluacion.js';
+import { finalGrade, hasPlan, catOf, breakdownHTML, studentSheetHTML } from './evaluacion.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
 export const routes = {
@@ -247,6 +247,21 @@ function myClasses(el) {
   return { update };
 }
 
+// Planilla de solo lectura del estudiante (misma vista del docente, solo su fila)
+function mySheet(c, tasks, inner = false) {
+  const cell = (t) => {
+    const s = subOf(t.id);
+    if (s?.grade != null) return gradePill(s.grade);
+    if (isReturned(s)) return `<span class="badge b-warning">${icon('undo')}Devuelta</span>`;
+    if (s?.submittedAt) return '<span class="badge b-info">Por calificar</span>';
+    if (t.dueAt && t.dueAt < Date.now()) return '<span class="badge b-danger">Sin entrega</span>';
+    return '<span class="muted">—</span>';
+  };
+  const html = studentSheetHTML(c, tasks, (t) => subOf(t.id)?.grade ?? null, cell, gradePill, fmtGrade);
+  // Dentro de "Mis calificaciones" va sin el marco de panel
+  return inner ? html.replace('<div class="panel my-sheet">', '<div class="my-sheet inner">').replace(/<div class="panel-head">.*?<\/div>/, '') : html;
+}
+
 function studentClassCard(c) {
   const tasks = tasksOf(c.id);
   const pend = tasks.filter((t) => !subOf(t.id)?.submittedAt && !c.archived).length;
@@ -271,6 +286,7 @@ function classView(el, id) {
     <div><a class="back-link" href="#/clases">${icon('arrowLeft')}Mis clases</a><section class="hero" id="cv-hero"></section></div>
     <div id="cv-arch"></div>
     <div id="cv-att"></div>
+    <div id="cv-sheet"></div>
     <div>
       <div class="filter-row">
         <div class="segmented" id="cv-filter">
@@ -315,6 +331,8 @@ function classView(el, id) {
         <div class="hero-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${periodText(c.attendance) ? `<span>${icon('clock')}${esc(periodText(c.attendance))}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}<span>${icon('clipboard')}${tasks.length} tareas</span></div>
       </div>
       ${ring(a, 92, hasPlan(c) ? 'definitiva' : 'promedio')}`;
+    const sheet = $('#cv-sheet'), sheetHTML = S.ready.subs ? mySheet(c, tasks) : '';
+    if (sheet && sheet.dataset.h !== sheetHTML) { sheet.innerHTML = sheetHTML; sheet.dataset.h = sheetHTML; }
     $('#cv-arch').innerHTML = c.archived ? `<div class="callout warn">${icon('archive')}<div>Esta clase fue archivada por el docente. Puede consultar el material y sus calificaciones, pero ya no se reciben entregas.</div></div>` : '';
     if (!S.ready.posts) return;
     const posts = postsOf(id).filter((p) => filter === 'all' || p.type === filter);
@@ -359,7 +377,7 @@ function grades(el) {
           <h2><span class="chip chip-c mono">${esc(c.code || '')}</span>${esc(c.name)}${c.archived ? ' <span class="badge b-warning">Archivada</span>' : ''}</h2>
           ${ring(a, 60, hasPlan(c) ? 'def.' : undefined)}
         </div>
-        ${breakdownHTML(fr, fmtGrade)}
+        ${mySheet(c, tasks, true)}
         ${tasks.length ? `<div class="table-wrap"><table class="tbl cards">
           <thead><tr><th>Tarea</th><th>Estado</th><th>Nota</th><th>Retroalimentación</th><th></th></tr></thead>
           <tbody>${tasks.map((t) => {

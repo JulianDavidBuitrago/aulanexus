@@ -153,3 +153,36 @@ export function breakdownHTML(r, fmt) {
       : r.final != null ? `Definitiva ponderada · acumulado: <b>${fmt(r.accumulated)}</b> de 5.0` : 'Aún no hay notas.'}</div>
   </div>`;
 }
+
+// ---------------------------------------------------------------------
+//  Planilla del estudiante (solo lectura, solo su fila)
+//  cellOf(task) → HTML de la celda · pill(nota) → HTML de la nota
+// ---------------------------------------------------------------------
+export function studentSheetHTML(c, tasks, gradeOf, cellOf, pill, fmt) {
+  if (!tasks.length) return '';
+  const cats = categoriesOf(c);
+  const num = new Map(tasks.map((t, i) => [t.id, i + 1]));
+  const th = (t) => `<th class="task" title="${esc(t.title)}">T${num.get(t.id)} · ${esc(t.title.split('·')[0].trim().slice(0, 18))}</th>`;
+  const td = (t) => `<td title="${esc(t.title)}">${cellOf(t)}</td>`;
+  const r = finalGrade(c, tasks, gradeOf);
+  let head, row;
+  if (cats.length) {
+    const groups = cats.map((k, i) => ({ k, i, ts: tasks.filter((t) => catOf(c, t).id === k.id) }));
+    head = `<tr class="gb-cats">${groups.map((g) => `<th class="gb-cat" colspan="${g.ts.length + 1}">${esc(g.k.name)} · ${g.k.weight} %</th>`).join('')}<th rowspan="2">Definitiva</th></tr>
+      <tr>${groups.map((g) => g.ts.map(th).join('') + '<th class="gb-avg">Prom.</th>').join('')}</tr>`;
+    row = groups.map((g) => g.ts.map(td).join('') + `<td class="gb-avg">${pill(r.byCat[g.i].avg)}</td>`).join('');
+  } else {
+    head = `<tr>${tasks.map(th).join('')}<th>Definitiva</th></tr>`;
+    row = tasks.map(td).join('');
+  }
+  const partial = r.weighted && r.final != null && r.covered < 100;
+  return `<div class="panel my-sheet">
+    <div class="panel-head"><h2>${icon('table')}Mi planilla de calificaciones</h2></div>
+    ${cats.length ? `<div class="ev-plan">${icon('chart')}<span><b>Plan de evaluación:</b> ${esc(planText(c))}</span></div>` : ''}
+    <div class="table-wrap"><table class="tbl gradebook"><thead>${head}</thead>
+      <tbody><tr>${row}<td class="final">${pill(r.final)}${partial ? `<small class="gb-cov">${r.covered} %</small>` : ''}</td></tr></tbody></table></div>
+    <p class="muted" style="font-size:12.5px;margin-top:10px">${r.weighted
+      ? `${partial ? `Definitiva parcial: se ha evaluado el ${r.covered} % del curso. Acumulado: <b>${fmt(r.accumulated)}</b> de 5.0. ` : r.final != null ? `Acumulado: <b>${fmt(r.accumulated)}</b> de 5.0. ` : ''}La nota de cada categoría es el promedio de sus tareas calificadas.`
+      : 'La definitiva es el promedio de las tareas calificadas.'} Solo usted ve esta planilla.</p>
+  </div>`;
+}
