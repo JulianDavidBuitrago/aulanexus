@@ -1,6 +1,7 @@
 // Vistas del docente
 import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notifyClass, byName, myClasses, isMine, isOwner, isCoTeacher, teacherName, myStudents, ownerOf } from './state.js';
 import { scopedSubs, coTeachersDialog, leaveClass, coInfo } from './coteach.js';
+import { gradingFieldsHTML, bindGradingFields, readGradingFields, categoryFieldHTML, categoriesOf, catOf, finalGrade, hasPlan, planText, breakdownHTML } from './evaluacion.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { LIMITS } from './firebase-config.js';
@@ -86,11 +87,13 @@ function classForm(c = null) {
         <div class="field span-2"><span class="label">Color de identificación</span>
           <div class="color-swatches">${CLASS_COLORS.map((k) => `<label style="--c:${colorVar(k)}" title="${k}"><input type="radio" name="cf-color" value="${k}" ${k === color ? 'checked' : ''}>${icon('check')}</label>`).join('')}</div>
         </div>
+        <div class="field span-2"><span class="label">Evaluación</span>${gradingFieldsHTML(c)}</div>
         <div class="field span-2"><span class="label">Asistencia</span>${attendanceFieldsHTML(c?.attendance || {})}</div>
       </div>`,
     footer: `<button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save data-loading="Guardando…">${icon('check')}${c ? 'Guardar cambios' : 'Crear clase'}</button>`,
     onMount(el, m) {
       bindAttendanceFields(el);
+      bindGradingFields(el);
       el.querySelector('[data-save]').addEventListener('click', (e) => {
         const name = el.querySelector('#cf-name'), code = el.querySelector('#cf-code');
         ui.clearErrors(el);
@@ -98,11 +101,13 @@ function classForm(c = null) {
         if (name.value.trim().length < 3) { ui.fieldError(name, 'Escriba el nombre de la clase.'); ok = false; }
         if (!code.value.trim()) { ui.fieldError(code, 'Escriba el código o grupo.'); ok = false; }
         const att = readAttendanceFields(el, c?.attendance || {});
-        if (att.error) { ok = false; el.querySelector('[data-att-cfg]').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        const ev = readGradingFields(el);
+        if (ev.error) { ok = false; el.querySelector('[data-ev-cfg]').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        if (att.error) { ok = false; if (!ev.error) el.querySelector('[data-att-cfg]').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
         if (!ok) return;
         const sched = el.querySelector('#cf-sched').value.trim() || scheduleText(att.attendance);
         const data = {
-          attendance: att.attendance,
+          attendance: att.attendance, grading: ev.grading,
           name: name.value.trim(), code: code.value.trim().toUpperCase(),
           room: el.querySelector('#cf-room').value.trim(), schedule: sched,
           description: el.querySelector('#cf-desc').value.trim(), color: el.querySelector('[name=cf-color]:checked')?.value || 'violet'
@@ -181,6 +186,7 @@ function editPostForm(post, { hasSubs = false } = {}) {
       <div class="form-grid">
         <div class="field"><label for="ep-links">Enlaces <span class="hint">uno por línea · YouTube y Drive se muestran integrados</span></label><textarea class="input" id="ep-links" rows="3">${esc((post.links || []).join('\n'))}</textarea></div>
         <div class="field" id="ep-due-f" ${type === 'tarea' ? '' : 'hidden'}><label for="ep-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="ep-due" type="datetime-local" value="${toLocalInput(post.dueAt)}"></div><div class="error"></div></div>
+        ${categoryFieldHTML(c, 'ep', post.category, type !== 'tarea')}
       </div>
       ${driveBlock('ep')}
       <div class="field"><span class="label">Archivos de código de apoyo</span>${dropzoneHTML(LIMITS.teacherExt, 'Agregue o quite archivos (clic o arrastrar)')}</div>
@@ -195,6 +201,7 @@ function editPostForm(post, { hasSubs = false } = {}) {
         type = b.dataset.t;
         $m('#ep-type').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
         $m('#ep-due-f').hidden = type !== 'tarea';
+        if ($m('#ep-cat-f')) $m('#ep-cat-f').hidden = type !== 'tarea';
       });
       $m('[data-save]').addEventListener('click', (e) => {
         ui.clearErrors(el);
@@ -207,6 +214,7 @@ function editPostForm(post, { hasSubs = false } = {}) {
           dueAt = new Date(d.value).getTime();
         }
         const data = { type, title: title.value.trim(), body: $m('#ep-body').value.trim(), links: cleanLinks($m('#ep-links').value), files, driveFiles, dueAt };
+        if (type === 'tarea' && $m('#ep-cat')) data.category = $m('#ep-cat').value;
         const notify = $m('#ep-notify').checked;
         ui.withLoading(e.currentTarget, async () => {
           try {
@@ -361,6 +369,7 @@ function classDetail(el, id) {
               <div class="form-grid">
                 <div class="field"><label for="cp-links">Enlaces <span class="hint">uno por línea · YouTube y Drive se muestran integrados</span></label><textarea class="input" id="cp-links" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://drive.google.com/…"></textarea></div>
                 <div class="field" id="cp-due-f" hidden><label for="cp-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="cp-due" type="datetime-local"></div><div class="error"></div></div>
+                <div id="cp-cat-slot" class="span-2-sm"></div>
               </div>
               ${driveBlock('cp')}
               <div class="field"><span class="label">Archivos de código de apoyo <span class="hint">opcional</span></span>${dropzoneHTML(LIMITS.teacherExt, 'Adjunte ejemplos de código (clic o arrastrar)')}</div>
@@ -418,7 +427,18 @@ function classDetail(el, id) {
     type = b.dataset.t;
     $('#cp-type').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
     $('#cp-due-f').hidden = type !== 'tarea';
+    paintCat();
   });
+  // Categoría de evaluación de la tarea (se repinta si cambia el plan de la clase)
+  let catSig = '';
+  function paintCat() {
+    const c = classById(id), slot = $('#cp-cat-slot'); if (!slot) return;
+    const sig = type + JSON.stringify(categoriesOf(c));
+    if (sig === catSig) return;
+    const cur = $('#cp-cat')?.value;
+    catSig = sig;
+    slot.innerHTML = type === 'tarea' ? categoryFieldHTML(c, 'cp', cur) : '';
+  }
   bindDropzone(composer, { allowed: LIMITS.teacherExt, get: () => composerFiles, set: (v) => { composerFiles = v; } });
   const paintDrive = bindDriveBlock(composer, 'cp', () => composerDrive, (v) => { composerDrive = v; });
   const audience = bindAudience(composer, 'cp', id);
@@ -436,6 +456,7 @@ function classDetail(el, id) {
     }
     const links = cleanLinks($('#cp-links').value);
     const post = { classId: id, ownerId: ownerOf(id), authorId: S.user.uid, authorName: teacherName(), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, driveFiles: composerDrive, dueAt };
+    if (type === 'tarea' && $('#cp-cat')) post.category = $('#cp-cat').value;
     const mail = audience.value();
     if (mail.mode === 'some' && !mail.uids.length) { ui.toast('Sin destinatarios', 'warn', 'Seleccione al menos un estudiante para el correo o elija "No enviar".'); return; }
     ui.withLoading(e.currentTarget, async () => {
@@ -504,15 +525,15 @@ function classDetail(el, id) {
     const tasks = tasksOf(id);
     $('#st-list').innerHTML = list.length ? `
       <div class="table-wrap"><table class="tbl cards">
-        <thead><tr><th>#</th><th>Estudiante</th><th>Código</th><th>Documento</th><th>Promedio</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>Estudiante</th><th>Código</th><th>Documento</th><th>${hasPlan(classById(id)) ? 'Definitiva' : 'Promedio'}</th><th></th></tr></thead>
         <tbody>${list.map((s, i) => {
-          const a = avg(tasks.map((t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade).filter((g) => g != null));
+          const a = finalGrade(classById(id), tasks, (t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade ?? null).final;
           return `<tr class="clickable" data-student="${s.uid}">
             <td class="num" data-label="#">${i + 1}</td>
             <td class="who-cell"><div class="who">${avatar(s.fullName, '', s.uid)}<div style="min-width:0"><b>${esc(s.fullName)}</b><small>${esc(s.email)}</small></div></div></td>
             <td class="num" data-label="Código">${esc(s.studentCode)}</td>
             <td class="num" data-label="Documento">${docText(s)}</td>
-            <td data-label="Promedio">${gradePill(a)}</td>
+            <td data-label="Definitiva">${gradePill(a)}</td>
             <td class="actions-cell"><div class="actions">
               <a class="btn btn-sm" href="#/estudiante/${s.uid}">${icon('user')}Ver</a>
               <button class="btn btn-sm btn-danger" data-act="remove-student" data-id="${s.uid}" title="Retirar de la clase">${icon('userMinus')}</button>
@@ -522,20 +543,44 @@ function classDetail(el, id) {
   }
 
   function renderGradebook() {
-    const tasks = tasksOf(id);
+    const c = classById(id);
     const list = studentsOf(id);
+    const cats = categoriesOf(c);
+    // Con plan de evaluación las tareas se agrupan por categoría
+    const tasks = cats.length ? cats.flatMap((k) => tasksOf(id).filter((t) => catOf(c, t).id === k.id)) : tasksOf(id);
     if (!tasks.length) { $('#gb').innerHTML = empty('clipboard', 'Sin tareas todavía', 'Cree una publicación de tipo "Tarea" para comenzar a calificar.'); return; }
     if (!list.length) { $('#gb').innerHTML = empty('users', 'Sin estudiantes inscritos'); return; }
-    $('#gb').innerHTML = `<div class="table-wrap"><table class="tbl gradebook">
-      <thead><tr><th>Estudiante</th>${tasks.map((t, i) => `<th class="task" title="${esc(t.title)}">T${i + 1} · ${esc(t.title.split('·')[0].trim().slice(0, 18))}</th>`).join('')}<th>Definitiva</th></tr></thead>
-      <tbody>${list.map((s) => {
-        const gs = tasks.map((t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid));
-        const a = avg(gs.map((x) => x?.grade).filter((g) => g != null));
+    const num = new Map(tasksOf(id).map((t, i) => [t.id, i + 1]));
+    const cell = (s, t) => {
+      const x = subs.find((y) => y.postId === t.id && y.studentId === s.uid);
+      return `<td><button class="btn btn-ghost btn-sm" style="padding:0 4px" data-grade="${t.id}" data-sid="${s.uid}" title="Calificar">${x?.grade != null ? gradePill(x.grade) : x?.submittedAt ? '<span class="badge b-info">Por calificar</span>' : isReturned(x) ? `<span class="badge b-warning">${icon('undo')}Devuelta</span>` : '<span class="muted">—</span>'}</button></td>`;
+    };
+    const th = (t) => `<th class="task" title="${esc(t.title)}">T${num.get(t.id)} · ${esc(t.title.split('·')[0].trim().slice(0, 18))}</th>`;
+    const gradeOf = (s) => (t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade ?? null;
+    let head, body;
+    if (cats.length) {
+      const groups = cats.map((k) => ({ k, ts: tasks.filter((t) => catOf(c, t).id === k.id) }));
+      head = `<tr class="gb-cats"><th rowspan="2">Estudiante</th>${groups.map((g) => `<th class="gb-cat" colspan="${g.ts.length + 1}">${esc(g.k.name)} · ${g.k.weight} %</th>`).join('')}<th rowspan="2">Definitiva</th></tr>
+        <tr>${groups.map((g) => g.ts.map(th).join('') + `<th class="gb-avg">Prom.</th>`).join('')}</tr>`;
+      body = list.map((s) => {
+        const r = finalGrade(c, tasks, gradeOf(s));
         return `<tr><td><div class="who">${avatar(s.fullName, 'sm', s.uid)}<b style="font-size:13px;white-space:nowrap">${esc(s.fullName)}</b></div></td>
-          ${gs.map((x, i) => `<td><button class="btn btn-ghost btn-sm" style="padding:0 4px" data-grade="${tasks[i].id}" data-sid="${s.uid}" title="Calificar">${x?.grade != null ? gradePill(x.grade) : x?.submittedAt ? '<span class="badge b-info">Por calificar</span>' : isReturned(x) ? `<span class="badge b-warning">${icon('undo')}Devuelta</span>` : '<span class="muted">—</span>'}</button></td>`).join('')}
-          <td class="final">${gradePill(a)}</td></tr>`;
-      }).join('')}</tbody></table></div>
-      <p class="muted" style="font-size:12.5px;margin-top:10px">La definitiva es el promedio simple de las tareas calificadas. Haga clic en una celda para revisar o calificar.</p>`;
+          ${groups.map((g, gi) => g.ts.map((t) => cell(s, t)).join('') + `<td class="gb-avg">${gradePill(r.byCat[gi].avg)}</td>`).join('')}
+          <td class="final" title="${r.covered < 100 && r.final != null ? `Parcial: sobre el ${r.covered} % evaluado. Acumulado ${fmtGrade(r.accumulated)} de 5.0` : ''}">${gradePill(r.final)}${r.covered < 100 && r.final != null ? `<small class="gb-cov">${r.covered} %</small>` : ''}</td></tr>`;
+      }).join('');
+    } else {
+      head = `<tr><th>Estudiante</th>${tasks.map(th).join('')}<th>Definitiva</th></tr>`;
+      body = list.map((s) => {
+        const a = finalGrade(c, tasks, gradeOf(s)).final;
+        return `<tr><td><div class="who">${avatar(s.fullName, 'sm', s.uid)}<b style="font-size:13px;white-space:nowrap">${esc(s.fullName)}</b></div></td>
+          ${tasks.map((t) => cell(s, t)).join('')}<td class="final">${gradePill(a)}</td></tr>`;
+      }).join('');
+    }
+    $('#gb').innerHTML = `${cats.length ? `<div class="ev-plan">${icon('chart')}<span><b>Plan de evaluación:</b> ${esc(planText(c))}</span></div>` : ''}
+      <div class="table-wrap"><table class="tbl gradebook"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+      <p class="muted" style="font-size:12.5px;margin-top:10px">${cats.length
+        ? 'La nota de cada categoría es el promedio de sus tareas calificadas; la definitiva pondera las categorías según su porcentaje. Si aún faltan categorías por calificar, la definitiva es parcial (se indica el % evaluado). Para cambiar los porcentajes use <b>Editar</b> clase.'
+        : 'La definitiva es el promedio simple de las tareas calificadas. Puede definir porcentajes por categoría en <b>Editar</b> clase.'} Haga clic en una celda para revisar o calificar.</p>`;
   }
   $('#gb').addEventListener('click', (e) => {
     const b = e.target.closest('[data-grade]'); if (!b) return;
@@ -580,6 +625,7 @@ function classDetail(el, id) {
     el.querySelector('[data-n="students"]').textContent = studs.length;
     $('#st-count').textContent = studs.length;
     composer.classList.toggle('hidden', !!c.archived);
+    paintCat();
 
     if (S.ready.posts) {
       patchFeed($('#cd-feed'), posts.map((p) => {
@@ -606,13 +652,16 @@ function csvCell(v) {
 }
 function exportGradebook(classId, subs) {
   const c = classById(classId);
-  const tasks = tasksOf(classId);
-  const header = ['Código', 'Nombre completo', ...tasks.map((t) => t.title), 'Definitiva'];
+  const cats = categoriesOf(c);
+  const tasks = cats.length ? cats.flatMap((k) => tasksOf(classId).filter((t) => catOf(c, t).id === k.id)) : tasksOf(classId);
+  const f = (g) => (g == null ? '' : Number(g).toFixed(1).replace('.', ','));
+  const header = ['Código', 'Nombre completo',
+    ...tasks.map((t) => (cats.length ? `${t.title} [${catOf(c, t).name}]` : t.title)),
+    ...cats.map((k) => `${k.name} (${k.weight} %)`), 'Definitiva', ...(cats.length ? ['% evaluado', 'Acumulado'] : [])];
   const rows = studentsOf(classId).map((s) => {
-    const gs = tasks.map((t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade ?? null);
-    const a = avg(gs.filter((g) => g != null));
-    const f = (g) => (g == null ? '' : Number(g).toFixed(1).replace('.', ','));
-    return [s.studentCode, s.fullName, ...gs.map(f), f(a)];
+    const gradeOf = (t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade ?? null;
+    const r = finalGrade(c, tasks, gradeOf);
+    return [s.studentCode, s.fullName, ...tasks.map((t) => f(gradeOf(t))), ...r.byCat.map((k) => f(k.avg)), f(r.final), ...(cats.length ? [r.covered, f(r.accumulated)] : [])];
   });
   download(`calificaciones-${c.code || c.name}.csv`, '﻿' + [header, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   ui.toast('Planilla exportada', 'success', 'Archivo CSV compatible con Excel.');
@@ -840,12 +889,13 @@ function studentDetail(el, uid) {
         </div>
         ${classes.length ? classes.map((c) => {
           const tasks = tasksOf(c.id);
-          const a = avg(tasks.map((t) => subs.find((x) => x.postId === t.id)?.grade).filter((g) => g != null));
+          const fr = finalGrade(c, tasks, (t) => subs.find((x) => x.postId === t.id)?.grade ?? null), a = fr.final;
           return `<div class="panel" style="--c:${colorVar(c.color)}">
             <div class="panel-head">
               <h2><span class="chip chip-c mono">${esc(c.code || '')}</span>${esc(c.name)}${c.archived ? ' <span class="badge b-warning">Archivada</span>' : ''}</h2>
               <div style="display:flex;gap:10px;align-items:center">${ring(a, 56)}<button class="btn btn-sm btn-danger" data-remove-class="${c.id}" title="Retirar de la clase">${icon('userMinus')}</button></div>
             </div>
+            ${breakdownHTML(fr, fmtGrade)}
             ${tasks.length ? `<div class="table-wrap"><table class="tbl cards">
               <thead><tr><th>Tarea</th><th>Estado</th><th>Nota</th><th>Retroalimentación</th><th></th></tr></thead>
               <tbody>${tasks.map((t) => {

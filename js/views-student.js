@@ -11,6 +11,7 @@ import {
 } from './components.js';
 import { collectDrive, driveCards, parseDriveUrl, driveHelp } from './drive.js';
 import { studentAttendanceHTML, attendanceBanner, periodText } from './asistencia.js';
+import { finalGrade, hasPlan, catOf, breakdownHTML } from './evaluacion.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
 export const routes = {
@@ -249,14 +250,14 @@ function myClasses(el) {
 function studentClassCard(c) {
   const tasks = tasksOf(c.id);
   const pend = tasks.filter((t) => !subOf(t.id)?.submittedAt && !c.archived).length;
-  const a = avg(tasks.map((t) => subOf(t.id)?.grade).filter((g) => g != null));
+  const a = finalGrade(c, tasks, (t) => subOf(t.id)?.grade ?? null).final;
   return `
   <article class="class-card" style="--c:${colorVar(c.color)}" data-href="#/clase/${c.id}" tabindex="0">
     <div class="cc-top"><span class="chip mono chip-c">${icon('hash')}${esc(c.code || '')}</span>${c.archived ? `<span class="badge b-warning">${icon('archive')}Archivada</span>` : pend ? `<span class="badge b-accent">${pend} ${pend === 1 ? 'tarea pendiente' : 'tareas pendientes'}</span>` : `<span class="badge b-success dot">Al día</span>`}</div>
     <h3>${esc(c.name)}</h3>
     ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
     <div class="cc-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${periodText(c.attendance) ? `<span>${icon('clock')}${esc(periodText(c.attendance))}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}</div>
-    <div class="cc-foot"><div style="display:flex;align-items:center;gap:10px">${gradePill(a)}<span>promedio · ${postsOf(c.id).length} publicaciones</span></div><span class="go">${icon('arrowRight')}</span></div>
+    <div class="cc-foot"><div style="display:flex;align-items:center;gap:10px">${gradePill(a)}<span>${hasPlan(c) ? 'definitiva' : 'promedio'} · ${postsOf(c.id).length} publicaciones</span></div><span class="go">${icon('arrowRight')}</span></div>
   </article>`;
 }
 
@@ -302,7 +303,7 @@ function classView(el, id) {
     const attBox = $('#cv-att'), attHTML = studentAttendanceHTML(c);
     if (attBox && attBox.dataset.h !== attHTML && !attBox.querySelector('[disabled]')) { attBox.innerHTML = attHTML; attBox.dataset.h = attHTML; }
     const tasks = tasksOf(id);
-    const a = avg(tasks.map((t) => subOf(t.id)?.grade).filter((g) => g != null));
+    const a = finalGrade(c, tasks, (t) => subOf(t.id)?.grade ?? null).final;
     const hero = $('#cv-hero');
     hero.style.setProperty('--hc', colorVar(c.color));
     hero.innerHTML = `
@@ -313,7 +314,7 @@ function classView(el, id) {
         ${c.description ? `<p>${esc(c.description)}</p>` : ''}
         <div class="hero-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${periodText(c.attendance) ? `<span>${icon('clock')}${esc(periodText(c.attendance))}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}<span>${icon('clipboard')}${tasks.length} tareas</span></div>
       </div>
-      ${ring(a, 92, 'promedio')}`;
+      ${ring(a, 92, hasPlan(c) ? 'definitiva' : 'promedio')}`;
     $('#cv-arch').innerHTML = c.archived ? `<div class="callout warn">${icon('archive')}<div>Esta clase fue archivada por el docente. Puede consultar el material y sus calificaciones, pero ya no se reciben entregas.</div></div>` : '';
     if (!S.ready.posts) return;
     const posts = postsOf(id).filter((p) => filter === 'all' || p.type === filter);
@@ -352,18 +353,19 @@ function grades(el) {
     if (!S.ready.posts || !S.ready.subs) return;
     el.querySelector('#g-list').innerHTML = classes.length ? classes.map((c) => {
       const tasks = tasksOf(c.id);
-      const a = avg(tasks.map((t) => subOf(t.id)?.grade).filter((g) => g != null));
+      const fr = finalGrade(c, tasks, (t) => subOf(t.id)?.grade ?? null), a = fr.final;
       return `<div class="panel" style="--c:${colorVar(c.color)}">
         <div class="panel-head">
           <h2><span class="chip chip-c mono">${esc(c.code || '')}</span>${esc(c.name)}${c.archived ? ' <span class="badge b-warning">Archivada</span>' : ''}</h2>
-          ${ring(a, 60)}
+          ${ring(a, 60, hasPlan(c) ? 'def.' : undefined)}
         </div>
+        ${breakdownHTML(fr, fmtGrade)}
         ${tasks.length ? `<div class="table-wrap"><table class="tbl cards">
           <thead><tr><th>Tarea</th><th>Estado</th><th>Nota</th><th>Retroalimentación</th><th></th></tr></thead>
           <tbody>${tasks.map((t) => {
             const s = subOf(t.id), st = taskStatus(t, s);
             return `<tr>
-              <td class="who-cell"><b>${esc(t.title)}</b><div class="muted" style="font-size:12px">${t.dueAt ? 'Límite: ' + fmtDate(t.dueAt) : 'Sin fecha límite'}</div></td>
+              <td class="who-cell"><b>${esc(t.title)}</b><div class="muted" style="font-size:12px">${catOf(c, t) ? `${esc(catOf(c, t).name)} (${catOf(c, t).weight} %) · ` : ''}${t.dueAt ? 'Límite: ' + fmtDate(t.dueAt) : 'Sin fecha límite'}</div></td>
               <td data-label="Estado"><span class="badge ${st.cls}">${st.label}</span></td>
               <td data-label="Nota">${gradePill(s?.grade)}</td>
               <td data-label="Retroalimentación" style="max-width:320px;font-size:13px;color:var(--text-2)">${isReturned(s) ? `<b style="color:var(--warning)">Por corregir:</b> ${esc(s.returnNote || '')}` : esc(s?.feedback || '—')}</td>

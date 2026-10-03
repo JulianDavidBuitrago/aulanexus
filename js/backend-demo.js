@@ -7,7 +7,7 @@ import { codeKey, docKey, uid as newId } from './util.js';
 import { emptyProposal, defaultFinal, currentPeriod } from './practica-model.js';
 import { openSession as attOpen, sessionKeys as attKeys, localParts as attLocal, keyOf as attKey, toMin as attMin } from './asistencia-model.js';
 
-const KEY = 'aulanexus-demo-v8';
+const KEY = 'aulanexus-demo-v9';
 const SESSION = 'aulanexus-demo-session';
 export const DEMO_ACCOUNTS = {
   admin: { email: TEACHER_EMAIL, password: 'Docente#2026' },
@@ -116,7 +116,7 @@ function seed() {
   db.users['t-carlos'] = { id: 't-carlos', uid: 't-carlos', role: 'teacher', active: true, fullName: 'Carlos Andrés Mejía Ríos', docType: 'CC', docNumber: '75081234', email: DEMO_ACCOUNTS.teacher.email, mustChangePassword: false, createdBy: ADMIN_UID, createdAt: now - 100 * D, updatedAt: now - 100 * D };
 
   const classes = [
-    { id: 'c-ihm', name: 'Interacción Humano-Máquina', code: '232G8F', schedule: 'Lunes · 7:00 – 10:00', room: 'Bloque D · Sala 3', color: 'violet', description: 'Principios de usabilidad, diseño centrado en el usuario, prototipado y evaluación heurística.' },
+    { id: 'c-ihm', name: 'Interacción Humano-Máquina', code: '232G8F', schedule: 'Lunes · 7:00 – 10:00', room: 'Bloque D · Sala 3', color: 'violet', description: 'Principios de usabilidad, diseño centrado en el usuario, prototipado y evaluación heurística.', grading: { categories: [{ id: 'k-seg', name: 'Talleres, trabajos y quices', weight: 40 }, { id: 'k-fin', name: 'Proyecto final', weight: 60 }] } },
     { id: 'c-req', name: 'Ingeniería de Requisitos', code: 'IRQ-01', schedule: 'Martes · 14:00 – 17:00', room: 'Bloque C · 204', color: 'cyan', description: 'Elicitación, especificación, validación y gestión de requisitos de software.' },
     { id: 'c-saw', name: 'Seguridad en Aplicaciones Web', code: 'SAW-02', schedule: 'Jueves · 18:00 – 21:00', room: 'Laboratorio de Redes', color: 'pink', description: 'OWASP Top 10, autenticación segura, criptografía aplicada y pruebas de penetración éticas.', coTeachers: ['t-carlos'], coTeacherInfo: [{ uid: 't-carlos', name: 'Carlos Andrés Mejía Ríos', email: DEMO_ACCOUNTS.teacher.email }] },
     { id: 'c-fti', name: 'Fundamentos de TI', code: 'FTI-2026-1', schedule: 'Viernes · 8:00 – 11:00', room: 'Bloque A · 101', color: 'emerald', description: 'Curso del periodo 2026-1.', archived: true, archivedAt: now - 60 * D },
@@ -145,8 +145,8 @@ function seed() {
   const posts = [
     { id: 'p1', classId: 'c-ihm', type: 'anuncio', title: 'Bienvenidos al curso de IHM', body: 'Este semestre trabajaremos en proyectos reales de diseño centrado en el usuario. Revisen el microcurrículo y el cronograma de entregas.\nLas sesiones inician puntualmente a las 7:00 a. m.', links: [], files: [], createdAt: now - 20 * D },
     { id: 'p2', classId: 'c-ihm', type: 'material', title: 'Patrón Observer y retroalimentación de interfaz', body: 'Adjunto el ejemplo visto en clase y la lectura sobre las 10 heurísticas de Nielsen.', links: ['https://www.nngroup.com/articles/ten-usability-heuristics/'], files: [{ name: 'DemoObserver.java', size: TEACHER_JAVA.length, content: TEACHER_JAVA }], createdAt: now - 12 * D },
-    { id: 'p3', classId: 'c-ihm', type: 'tarea', title: 'Taller 1 · Gestor de tareas con validación', body: 'Implementen en Java un gestor de tareas que valide entradas vacías y muestre mensajes de error comprensibles para el usuario. Entreguen el archivo .java y una breve justificación de decisiones de usabilidad.', links: [], files: [], dueAt: now - 3 * D, createdAt: now - 10 * D },
-    { id: 'p4', classId: 'c-ihm', type: 'tarea', title: 'Taller 2 · Evaluación heurística', body: 'Evalúen la plataforma de matrícula de la universidad aplicando las 10 heurísticas. Entreguen el informe en texto plano con hallazgos y severidad (0–4).', links: [], files: [], dueAt: now + 4 * D, createdAt: now - 2 * D },
+    { id: 'p3', classId: 'c-ihm', type: 'tarea', category: 'k-seg', title: 'Taller 1 · Gestor de tareas con validación', body: 'Implementen en Java un gestor de tareas que valide entradas vacías y muestre mensajes de error comprensibles para el usuario. Entreguen el archivo .java y una breve justificación de decisiones de usabilidad.', links: [], files: [], dueAt: now - 3 * D, createdAt: now - 10 * D },
+    { id: 'p4', classId: 'c-ihm', type: 'tarea', category: 'k-seg', title: 'Taller 2 · Evaluación heurística', body: 'Evalúen la plataforma de matrícula de la universidad aplicando las 10 heurísticas. Entreguen el informe en texto plano con hallazgos y severidad (0–4).', links: [], files: [], dueAt: now + 4 * D, createdAt: now - 2 * D },
     { id: 'p5', classId: 'c-saw', type: 'anuncio', title: 'Laboratorio de OWASP Juice Shop', body: 'El próximo jueves trabajaremos en el laboratorio de redes. Traigan su portátil con Docker instalado.', links: ['https://owasp.org/www-project-juice-shop/'], files: [], createdAt: now - 6 * D },
     { id: 'p6', classId: 'c-saw', type: 'tarea', title: 'Reto 1 · Validador y hash de contraseñas', body: 'Construyan en Python un validador de contraseñas y una función de hash con sal usando PBKDF2. Entreguen el archivo .py.', links: [], files: [], dueAt: now - 1 * D, createdAt: now - 8 * D },
     { id: 'p7', classId: 'c-saw', type: 'tarea', title: 'Reto 2 · Análisis de inyección SQL', body: 'Documenten tres vectores de inyección SQL y su mitigación con consultas parametrizadas. Pueden adjuntar código de ejemplo en Java o Python.', links: [], files: [], dueAt: now + 6 * D, createdAt: now - 1 * D },
