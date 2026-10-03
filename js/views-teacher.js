@@ -15,7 +15,7 @@ import { promoteToTeacher } from './views-admin.js';
 import { pickFromDrive, driveCards, pickerConfigured } from './drive.js';
 import { audienceHTML, bindAudience, sendPostEmail, mailResultText } from './emailer.js';
 import { usageBanner } from './consumo.js';
-import { attendanceFieldsHTML, bindAttendanceFields, readAttendanceFields, attendancePanel, scheduleText, openSession } from './asistencia.js';
+import { attendanceFieldsHTML, bindAttendanceFields, readAttendanceFields, attendancePanel, scheduleText, openSession, periodText } from './asistencia.js';
 
 export const routes = {
   '': dashboard,
@@ -562,6 +562,7 @@ function classDetail(el, id) {
         ${c.description ? `<p>${esc(c.description)}</p>` : ''}
         <div class="hero-meta">
           ${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}
+          ${periodText(c.attendance) ? `<span title="Periodo de la clase">${icon('clock')}${esc(periodText(c.attendance))}</span>` : ''}
           ${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}
           <span>${icon('users')}${studs.length} estudiantes</span>
           <span>${icon('clipboard')}${tasks.length} tareas</span>

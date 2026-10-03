@@ -10,7 +10,7 @@ import {
 , isReturned, returnNotice
 } from './components.js';
 import { collectDrive, driveCards, parseDriveUrl, driveHelp } from './drive.js';
-import { studentAttendanceHTML, attendanceBanner } from './asistencia.js';
+import { studentAttendanceHTML, attendanceBanner, periodText } from './asistencia.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
 export const routes = {
@@ -255,7 +255,7 @@ function studentClassCard(c) {
     <div class="cc-top"><span class="chip mono chip-c">${icon('hash')}${esc(c.code || '')}</span>${c.archived ? `<span class="badge b-warning">${icon('archive')}Archivada</span>` : pend ? `<span class="badge b-accent">${pend} ${pend === 1 ? 'tarea pendiente' : 'tareas pendientes'}</span>` : `<span class="badge b-success dot">Al día</span>`}</div>
     <h3>${esc(c.name)}</h3>
     ${c.description ? `<p class="desc">${esc(c.description)}</p>` : ''}
-    <div class="cc-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}</div>
+    <div class="cc-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${periodText(c.attendance) ? `<span>${icon('clock')}${esc(periodText(c.attendance))}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}</div>
     <div class="cc-foot"><div style="display:flex;align-items:center;gap:10px">${gradePill(a)}<span>promedio · ${postsOf(c.id).length} publicaciones</span></div><span class="go">${icon('arrowRight')}</span></div>
   </article>`;
 }
@@ -311,7 +311,7 @@ function classView(el, id) {
         <span class="eyebrow" style="color:${colorVar(c.color)}">${icon('hash')}${esc(c.code || '')}</span>
         <h1>${esc(c.name)}</h1>
         ${c.description ? `<p>${esc(c.description)}</p>` : ''}
-        <div class="hero-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}<span>${icon('clipboard')}${tasks.length} tareas</span></div>
+        <div class="hero-meta">${c.ownerName ? `<span>${icon('grad')}${esc(c.ownerName)}</span>` : ''}${c.schedule ? `<span>${icon('calendar')}${esc(c.schedule)}</span>` : ''}${periodText(c.attendance) ? `<span>${icon('clock')}${esc(periodText(c.attendance))}</span>` : ''}${c.room ? `<span>${icon('pin')}${esc(c.room)}</span>` : ''}<span>${icon('clipboard')}${tasks.length} tareas</span></div>
       </div>
       ${ring(a, 92, 'promedio')}`;
     $('#cv-arch').innerHTML = c.archived ? `<div class="callout warn">${icon('archive')}<div>Esta clase fue archivada por el docente. Puede consultar el material y sus calificaciones, pero ya no se reciben entregas.</div></div>` : '';

@@ -7,7 +7,7 @@ import { codeKey, docKey, uid as newId } from './util.js';
 import { emptyProposal, defaultFinal, currentPeriod } from './practica-model.js';
 import { openSession as attOpen, sessionKeys as attKeys, localParts as attLocal, keyOf as attKey, toMin as attMin } from './asistencia-model.js';
 
-const KEY = 'aulanexus-demo-v7';
+const KEY = 'aulanexus-demo-v8';
 const SESSION = 'aulanexus-demo-session';
 export const DEMO_ACCOUNTS = {
   admin: { email: TEACHER_EMAIL, password: 'Docente#2026' },
@@ -196,7 +196,9 @@ function seed() {
     days[lp.dow] = { start: hh(s0), end: hh(e0), s: s0, e: e0 };
     const startDate = new Date(now - 35 * D + tz * 60000).toISOString().slice(0, 10);
     const ihm = db.classes['c-ihm'];
-    ihm.attendance = { enabled: true, tz, before: 10, late: 15, startDate, days, extra: [], removed: [] };
+    const endDate = new Date(now + 80 * D + tz * 60000).toISOString().slice(0, 10);
+    const k = (iso) => Number(iso.replace(/-/g, ''));
+    ihm.attendance = { enabled: true, tz, before: 10, late: 15, startDate, endDate, startKey: k(startDate), endKey: k(endDate), days, extra: [], removed: [] };
     const stIhm = Object.values(db.users).filter((u) => (u.classIds || []).includes('c-ihm'));
     const today = attKey(lp);
     const pattern = ['presente', 'presente', 'presente', 'tarde', 'presente', 'ausente', 'presente', 'excusa', 'presente', 'presente', 'tarde'];

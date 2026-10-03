@@ -2,7 +2,8 @@
 //  Asistencia · modelo puro (sin DOM)
 //  class.attendance = {
 //    enabled, tz (minutos respecto a UTC; Colombia = -300), before (min antes del inicio),
-//    late (min de tolerancia para "presente"), startDate ('AAAA-MM-DD'),
+//    late (min de tolerancia para "presente"), startDate / endDate ('AAAA-MM-DD'),
+//    startKey / endKey (AAAAMMDD numérico, para las reglas; endKey 0 = sin fecha final),
 //    days: { '1': { start: '07:00', end: '10:00', s: 420, e: 600 }, … }   1 = lunes … 7 = domingo
 //    extra: [AAAAMMDD…] (sesiones agregadas), removed: [AAAAMMDD…] (sesiones quitadas)
 //  }
@@ -44,6 +45,20 @@ export function fmtKey(k, long = false) {
 export const recId = (classId, dateKey, uid) => `${classId}_${dateKey}_${uid}`;
 export const hasSchedule = (a) => !!a && !!a.days && Object.keys(a.days).length > 0;
 
+// Periodo de la clase: fecha inicial y final (inclusive). Sin fecha final = indefinido.
+export function periodOf(a) {
+  const start = keyFromISO(a?.startDate) || 0, end = keyFromISO(a?.endDate) || 0;
+  return { start, end };
+}
+export const inPeriod = (a, k) => { const p = periodOf(a); return k >= p.start && (!p.end || k <= p.end); };
+const dmy = (k) => `${k % 100} ${MONTHS[Math.floor(k / 100) % 100 - 1].slice(0, 3)} ${Math.floor(k / 10000)}`;
+export function periodText(a) {
+  const p = periodOf(a);
+  if (p.start && p.end) return `${dmy(p.start)} – ${dmy(p.end)}`;
+  if (p.start) return `Desde el ${dmy(p.start)}`;
+  return p.end ? `Hasta el ${dmy(p.end)}` : '';
+}
+
 export function scheduleText(a) {
   if (!hasSchedule(a)) return '';
   return Object.keys(a.days).sort().map((d) => `${WEEK[d - 1][1]} ${a.days[d].start}–${a.days[d].end}`).join(' · ');
@@ -55,7 +70,7 @@ export function openSession(c, now = Date.now()) {
   if (!a?.enabled || c.archived) return null;
   const p = localParts(now, tzOf(a));
   const key = keyOf(p);
-  if ((a.removed || []).includes(key)) return null;
+  if ((a.removed || []).includes(key) || !inPeriod(a, key)) return null;
   const slot = a.days?.[String(p.dow)];
   if (!slot) return null;
   const before = a.before ?? 10, late = a.late ?? 15;
@@ -67,12 +82,13 @@ export function openSession(c, now = Date.now()) {
 export function nextSession(c, now = Date.now()) {
   const a = c?.attendance;
   if (!hasSchedule(a)) return null;
-  const p = localParts(now, tzOf(a));
-  let k = keyOf(p);
-  for (let i = 0; i < 15; i++, k = addDays(k, 1)) {
+  const p = localParts(now, tzOf(a)), per = periodOf(a), today = keyOf(p);
+  let k = Math.max(today, per.start);
+  for (let i = 0; i < 400; i++, k = addDays(k, 1)) {
+    if (per.end && k > per.end) return null;
     const slot = a.days[String(dowOfKey(k))];
     if (!slot || (a.removed || []).includes(k)) continue;
-    if (i === 0 && p.min > slot.e) continue;
+    if (k === today && p.min > slot.e) continue;
     return { dateKey: k, slot };
   }
   return null;
@@ -85,7 +101,8 @@ export function sessionKeys(c, recs = [], now = Date.now()) {
   const keys = new Set();
   if (hasSchedule(a)) {
     let k = keyFromISO(a.startDate) || keyOf(localParts(c.createdAt || now, tz));
-    for (let i = 0; i < 400 && k <= today; i++, k = addDays(k, 1)) {
+    const last = periodOf(a).end ? Math.min(today, periodOf(a).end) : today;
+    for (let i = 0; i < 400 && k <= last; i++, k = addDays(k, 1)) {
       const slot = a.days[String(dowOfKey(k))];
       if (!slot) continue;
       if (k === today && p.min < slot.s - (a.before ?? 10)) continue;

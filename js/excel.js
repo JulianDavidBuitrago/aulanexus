@@ -208,3 +208,109 @@ export async function exportResults(rows, fileName = 'resultados-inscripcion.xls
   const buf = await wb.xlsx.writeBuffer();
   download(fileName, buf, XLSX_MIME);
 }
+
+// ---------- Asistencia de una clase ----------
+// data: { cls, period, schedule, sessions:[{key, iso, label}], students:[{name, code, doc, email, marks:[status|null], totals, records:[…]}] }
+const ATT = {
+  presente: { t: 'P', label: 'Presente', fill: 'FFD1FAE5', font: 'FF065F46' },
+  tarde: { t: 'T', label: 'Tarde', fill: 'FFFEF3C7', font: 'FF92400E' },
+  ausente: { t: 'A', label: 'Ausente', fill: 'FFFEE2E2', font: 'FF991B1B' },
+  excusa: { t: 'E', label: 'Excusa', fill: 'FFDBEAFE', font: 'FF1E40AF' }
+};
+export async function exportAttendance(data) {
+  const ExcelJS = await loadExcel();
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'AulaNexus';
+  const c = data.cls, n = data.sessions.length;
+  const thin = { style: 'thin', color: { argb: 'FFD4D4D8' } };
+  const border = { top: thin, left: thin, bottom: thin, right: thin };
+  const fixed = ['#', 'Estudiante', 'Código', 'Documento'];
+  const tail = ['Presente', 'Tarde', 'Ausente', 'Excusa', '% asistencia'];
+
+  // ---- Hoja 1: matriz ----
+  const ws = wb.addWorksheet('Asistencia', { views: [{ state: 'frozen', xSplit: 2, ySplit: 6 }], pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const lastCol = fixed.length + n + tail.length;
+  ws.mergeCells(1, 1, 1, Math.max(lastCol, 6));
+  Object.assign(ws.getCell(1, 1), { value: `Asistencia · ${c.name}${c.code ? ` (${c.code})` : ''}`, font: { bold: true, size: 14, color: { argb: 'FF4C1D95' } } });
+  ws.getCell(2, 1).value = `Docente: ${c.ownerName || ''}`;
+  ws.getCell(3, 1).value = `Periodo: ${data.period || 'sin fechas definidas'}${data.schedule ? ` · Horario: ${data.schedule}` : ''}`;
+  ws.getCell(4, 1).value = `Generado: ${new Date().toLocaleString('es-CO')} · P presente · T tarde · A ausente · E excusa · el % no cuenta las excusas`;
+  [2, 3, 4].forEach((r) => { ws.getCell(r, 1).font = { color: { argb: 'FF52525B' }, size: 10 }; });
+
+  const H = 6;
+  const head = [...fixed, ...data.sessions.map((s) => s.label), ...tail];
+  ws.getRow(H).values = head;
+  ws.getRow(H).height = 30;
+  ws.getRow(H).eachCell((cell, i) => {
+    Object.assign(cell, HEAD);
+    cell.alignment = { vertical: 'middle', horizontal: i <= 2 ? 'left' : 'center', wrapText: true };
+    cell.border = border;
+  });
+  // Fecha completa como nota en cada sesión
+  data.sessions.forEach((s, i) => { ws.getCell(H, fixed.length + 1 + i).note = s.iso; });
+
+  data.students.forEach((st, idx) => {
+    const t = st.totals || {};
+    const row = ws.getRow(H + 1 + idx);
+    row.values = [idx + 1, st.name, st.code, st.doc, ...st.marks.map((m) => (m ? ATT[m].t : '')), t.presente || 0, t.tarde || 0, t.ausente || 0, t.excusa || 0, t.pct != null ? t.pct / 100 : null];
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      if (col > lastCol) return;
+      cell.border = border;
+      cell.alignment = { vertical: 'middle', horizontal: col === 2 ? 'left' : 'center' };
+      const m = col > fixed.length && col <= fixed.length + n ? st.marks[col - fixed.length - 1] : null;
+      if (m) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ATT[m].fill } }; cell.font = { bold: true, color: { argb: ATT[m].font } }; }
+    });
+    const pc = row.getCell(lastCol);
+    pc.numFmt = '0%';
+    if (t.pct != null) pc.font = { bold: true, color: { argb: t.pct >= 80 ? 'FF065F46' : t.pct >= 60 ? 'FF92400E' : 'FF991B1B' } };
+  });
+  // Totales por sesión
+  if (data.students.length && n) {
+    const r = ws.getRow(H + data.students.length + 1);
+    r.getCell(2).value = 'Presentes + tarde por sesión';
+    r.getCell(2).font = { italic: true, color: { argb: 'FF52525B' } };
+    data.sessions.forEach((s, i) => {
+      const cell = r.getCell(fixed.length + 1 + i);
+      cell.value = data.students.filter((st) => ['presente', 'tarde'].includes(st.marks[i])).length;
+      cell.alignment = { horizontal: 'center' }; cell.font = { bold: true };
+    });
+  }
+  ws.getColumn(1).width = 5; ws.getColumn(2).width = 34; ws.getColumn(3).width = 14; ws.getColumn(4).width = 17;
+  for (let i = 0; i < n; i++) ws.getColumn(fixed.length + 1 + i).width = 8.5;
+  tail.forEach((_, i) => { ws.getColumn(fixed.length + n + 1 + i).width = i === tail.length - 1 ? 13 : 10; });
+  if (data.students.length) ws.autoFilter = { from: { row: H, column: 1 }, to: { row: H + data.students.length, column: lastCol } };
+
+  // ---- Hoja 2: detalle ----
+  const wd = wb.addWorksheet('Detalle', { views: [{ state: 'frozen', ySplit: 1 }] });
+  wd.columns = [
+    { header: 'Fecha', key: 'date', width: 12 },
+    { header: 'Día', key: 'day', width: 11 },
+    { header: 'Estudiante', key: 'name', width: 34 },
+    { header: 'Código', key: 'code', width: 14 },
+    { header: 'Correo', key: 'email', width: 34 },
+    { header: 'Estado', key: 'status', width: 12 },
+    { header: 'Registrado por', key: 'by', width: 24 },
+    { header: 'Hora de registro', key: 'at', width: 20 }
+  ];
+  wd.getRow(1).eachCell((cell) => Object.assign(cell, HEAD));
+  const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const rows = [];
+  data.students.forEach((st) => st.records.forEach((r) => rows.push({ st, r })));
+  rows.sort((a, b) => a.r.key - b.r.key || a.st.name.localeCompare(b.st.name, 'es'));
+  rows.forEach(({ st, r }) => {
+    const [y, m, d] = r.iso.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const row = wd.addRow({
+      date: dt, day: DAYS[dt.getUTCDay()], name: st.name, code: st.code, email: st.email,
+      status: r.status ? ATT[r.status].label : 'Pendiente', by: r.by,
+      at: r.at ? new Date(r.at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : ''
+    });
+    row.getCell('date').numFmt = 'dd/mm/yyyy';
+    if (r.status) { const sc = row.getCell('status'); sc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ATT[r.status].fill } }; sc.font = { color: { argb: ATT[r.status].font } }; }
+  });
+  if (rows.length) wd.autoFilter = { from: 'A1', to: `H${rows.length + 1}` };
+
+  const buf = await wb.xlsx.writeBuffer();
+  const safe = String(c.code || c.name || 'clase').replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '').trim().replace(/\s+/g, '-');
+  download(`asistencia-${safe}-${new Date().toLocaleDateString('sv-SE')}.xlsx`, buf, XLSX_MIME);
+}

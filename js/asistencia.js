@@ -11,10 +11,11 @@ import { esc, errMsg, download } from './util.js';
 import { avatar, empty } from './components.js';
 import {
   WEEK, ATT_STATUS, toMin, fmtMin, tzOf, defaultTz, localParts, keyOf, keyFromISO, isoFromKey, fmtKey, recId,
-  hasSchedule, scheduleText, openSession, nextSession, sessionKeys, sessionClosed, summary
+  hasSchedule, scheduleText, openSession, nextSession, sessionKeys, sessionClosed, summary, periodOf, periodText
 } from './asistencia-model.js';
+import { exportAttendance } from './excel.js';
 
-export { scheduleText, openSession };
+export { scheduleText, openSession, periodText };
 
 // ---------------------------------------------------------------------
 //  Configuración (bloque reutilizable)
@@ -42,9 +43,10 @@ export function attendanceFieldsHTML(a = {}) {
     <div class="form-grid att-opts">
       <div class="field"><label>Abrir registro antes del inicio</label><select class="input" data-att-before>${[0, 5, 10, 15, 20, 30].map((n) => `<option value="${n}" ${(a.before ?? 10) === n ? 'selected' : ''}>${n} minutos</option>`).join('')}</select></div>
       <div class="field"><label>Tolerancia para "Presente"</label><select class="input" data-att-late>${[0, 5, 10, 15, 20, 30, 45].map((n) => `<option value="${n}" ${(a.late ?? 15) === n ? 'selected' : ''}>${n} minutos</option>`).join('')}</select></div>
-      <div class="field span-2"><label>Contar sesiones desde <span class="hint">inicio del periodo</span></label><input class="input" type="date" data-att-start value="${esc(a.startDate || isoFromKey(keyOf(today)))}"></div>
+      <div class="field"><label>Fecha inicial <span class="hint">primer día de clase</span></label><input class="input" type="date" data-att-start value="${esc(a.startDate || isoFromKey(keyOf(today)))}"></div>
+      <div class="field"><label>Fecha final <span class="hint">último día de clase</span></label><input class="input" type="date" data-att-end value="${esc(a.endDate || '')}"></div>
     </div>
-    <p class="muted att-help">${icon('info')}El registro se cierra a la hora de fin. Después de la tolerancia queda como <b>Tarde</b>; quien no se registre queda <b>Ausente</b> (usted puede corregirlo).</p>
+    <p class="muted att-help">${icon('info')}Solo hay sesiones (y registro de asistencia) entre la fecha inicial y la final. El registro se cierra a la hora de fin. Después de la tolerancia queda como <b>Tarde</b>; quien no se registre queda <b>Ausente</b> (usted puede corregirlo).</p>
   </div>`;
 }
 
@@ -73,13 +75,17 @@ export function readAttendanceFields(root, prev = {}) {
   });
   const enabled = box.querySelector('[data-att-on]').checked;
   if (enabled && !Object.keys(days).length) error = 'Seleccione al menos un día de clase.';
+  const startDate = box.querySelector('[data-att-start]').value || '', endDate = box.querySelector('[data-att-end]')?.value || '';
+  if (!error && enabled && !startDate) error = 'Indique la fecha inicial de la clase.';
+  if (!error && startDate && endDate && endDate < startDate) error = 'La fecha final debe ser igual o posterior a la fecha inicial.';
   box.querySelector('[data-att-err]').textContent = error;
   return {
     error,
     attendance: {
       ...prev, enabled, days,
       before: +box.querySelector('[data-att-before]').value, late: +box.querySelector('[data-att-late]').value,
-      startDate: box.querySelector('[data-att-start]').value || '', tz: Number.isFinite(prev.tz) ? prev.tz : defaultTz(),
+      startDate, endDate, startKey: keyFromISO(startDate) || 0, endKey: keyFromISO(endDate) || 0,
+      tz: Number.isFinite(prev.tz) ? prev.tz : defaultTz(),
       extra: prev.extra || [], removed: prev.removed || []
     }
   };
@@ -182,7 +188,11 @@ export function attendancePanel(root, classId) {
       } catch (er) { ui.toast('Error', 'error', errMsg(er)); }
       return;
     }
-    if (act === 'export') exportCSV(c);
+    if (act === 'export') {
+      await ui.withLoading(b, async () => {
+        try { await exportXlsx(c); } catch (er) { ui.toast('No se pudo generar el Excel', 'error', errMsg(er)); }
+      });
+    }
   });
   root.addEventListener('change', async (e) => {
     const c = classById(classId); if (!c) return;
@@ -195,16 +205,26 @@ export function attendancePanel(root, classId) {
     if (e.target.matches('[data-sel-session]')) { sel = +e.target.value; render(); }
   });
 
-  function exportCSV(c) {
+  // Excel: hoja "Asistencia" (matriz estudiantes × sesiones con totales) y hoja "Detalle" (un registro por fila)
+  async function exportXlsx(c) {
     const keys = sessionKeys(c, recs).slice().reverse();
     const studs = studentsOf(classId);
-    const head = ['Estudiante', 'Código', ...keys.map((k) => isoFromKey(k)), 'Presente', 'Tarde', 'Ausente', 'Excusa', '% asistencia'];
-    const rows = studs.map((s) => {
-      const sm = summary(c, s.uid, recs, keys);
-      return [s.fullName, s.studentCode, ...keys.map((k) => { const r = rec(s.uid, k); return r ? ATT_STATUS[r.status].short : (sessionClosed(c, k) ? 'A' : ''); }), sm.presente, sm.tarde, sm.ausente, sm.excusa, sm.pct ?? ''];
+    const status = (s, k) => { const r = rec(s.uid, k); return r ? r.status : (sessionClosed(c, k) ? 'ausente' : null); };
+    await exportAttendance({
+      cls: c, period: periodText(c.attendance || {}), schedule: scheduleText(c.attendance || {}),
+      sessions: keys.map((k) => ({ key: k, iso: isoFromKey(k), label: fmtKey(k) })),
+      students: studs.map((s) => {
+        const sm = summary(c, s.uid, recs, keys);
+        return {
+          name: s.fullName, code: s.studentCode || '', doc: `${s.docType || ''} ${s.docNumber || ''}`.trim(), email: s.email || '',
+          marks: keys.map((k) => status(s, k)), totals: sm,
+          records: keys.map((k) => {
+            const r = rec(s.uid, k), st = status(s, k);
+            return { key: k, iso: isoFromKey(k), status: st, by: r ? (r.by === 'student' ? 'Estudiante' : 'Docente') : (st ? 'Automático (sin registro)' : ''), at: r?.at || null };
+          })
+        };
+      })
     });
-    const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    download(`asistencia-${c.code || c.name}.csv`, '﻿' + [head, ...rows].map((r) => r.map(cell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   }
 
   function render() {
@@ -221,20 +241,21 @@ export function attendancePanel(root, classId) {
     const reg = open ? recs.filter((r) => r.dateKey === open.dateKey).length : 0;
     const statusLine = !a.enabled ? `<span class="badge">${icon('lock')}Deshabilitada</span> Los estudiantes no pueden registrarse.`
       : open ? `<span class="badge b-success att-live">${icon('zap')}Registro abierto</span> ${fmtMin(open.slot.s)} – ${fmtMin(open.slot.e)} · <b>${reg} de ${studs.length}</b> registrados`
-      : next ? `Próxima sesión: <b>${esc(fmtKey(next.dateKey, true))}</b>, ${fmtMin(next.slot.s)}` : '';
+      : next ? `Próxima sesión: <b>${esc(fmtKey(next.dateKey, true))}</b>, ${fmtMin(next.slot.s)}`
+      : periodOf(a).end && keyOf(localParts(Date.now(), tzOf(a))) > periodOf(a).end ? `<span class="badge">${icon('check')}Periodo finalizado</span> La clase terminó el ${esc(fmtKey(periodOf(a).end, true))}.` : '';
     const closed = sel != null && sessionClosed(c, sel);
     root.innerHTML = `
     <div class="stack">
       <div class="panel att-head">
         <div class="att-head-main">
           <label class="switch" title="Habilitar o deshabilitar el registro de asistencia"><input type="checkbox" data-att-toggle ${a.enabled ? 'checked' : ''}><span class="track"></span><span><b>Asistencia ${a.enabled ? 'habilitada' : 'deshabilitada'}</b></span></label>
-          <div class="att-sched">${icon('calendar')}${esc(scheduleText(a))}</div>
+          <div class="att-sched">${icon('calendar')}${esc(scheduleText(a))}${periodText(a) ? ` · <span class="att-period">${esc(periodText(a))}</span>` : ''}</div>
           <div class="att-status">${statusLine}</div>
         </div>
         <div class="att-head-actions">
           <button class="btn btn-sm" data-aact="config">${icon('sliders')}Horario</button>
           <button class="btn btn-sm" data-aact="add-session">${icon('plus')}Agregar sesión</button>
-          <button class="btn btn-sm" data-aact="export">${icon('download')}Exportar CSV</button>
+          <button class="btn btn-sm" data-aact="export" data-loading="Generando…">${icon('download')}Descargar Excel</button>
         </div>
       </div>
       ${!keys.length ? `<div class="panel">${empty('clock', 'Aún no hay sesiones', next ? `La primera sesión es el ${fmtKey(next.dateKey, true)}.` : 'Agregue una sesión o revise la fecha de inicio.')}</div>` : `
