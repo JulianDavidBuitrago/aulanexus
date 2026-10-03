@@ -7,11 +7,11 @@ import { esc, fmtDate, timeLeft, avg, fmtGrade, greeting, firstName, errMsg, DOC
 import {
   avatar, colorVar, empty, skeletonCards, skeletonLines, gradePill, ring, classCard, postCard, openFiles,
   dropzoneHTML, bindDropzone, taskStatus, codeViewer, bindCodeViewer, fileItems, patchFeed, subLinksBlock
-, isReturned, returnNotice
+, isReturned, returnNotice, canSubmit
 } from './components.js';
 import { collectDrive, driveCards, parseDriveUrl, driveHelp } from './drive.js';
 import { studentAttendanceHTML, attendanceBanner, periodText } from './asistencia.js';
-import { finalGrade, hasPlan, catOf, breakdownHTML, studentSheetHTML } from './evaluacion.js';
+import { finalGrade, hasPlan, catOf, breakdownHTML, studentSheetHTML, effGrade, isMissing, zeroMissing, missingCell } from './evaluacion.js';
 import { passwordField, bindPassword, analyze } from './password.js';
 
 export const routes = {
@@ -51,6 +51,7 @@ function feedActions(e) {
 function submitModal(post) {
   const c = classById(post.classId);
   const prev = subOf(post.id);
+  if (!canSubmit(post, prev)) { ui.toast('Actividad cerrada', 'warn', 'El docente cerró esta actividad y ya no recibe trabajos.'); return; }
   let files = (prev?.files || []).map((f) => ({ ...f }));
   const returned = isReturned(prev);
   // Si el docente devolvió la entrega, el plazo que cuenta es el nuevo (si lo fijó); si no, el reenvío no se marca tardío
@@ -252,12 +253,13 @@ function mySheet(c, tasks, inner = false) {
   const cell = (t) => {
     const s = subOf(t.id);
     if (s?.grade != null) return gradePill(s.grade);
+    if (zeroMissing(c) && isMissing(t, s)) return missingCell(gradePill);
     if (isReturned(s)) return `<span class="badge b-warning">${icon('undo')}Devuelta</span>`;
     if (s?.submittedAt) return '<span class="badge b-info">Por calificar</span>';
     if (t.dueAt && t.dueAt < Date.now()) return '<span class="badge b-danger">Sin entrega</span>';
     return '<span class="muted">—</span>';
   };
-  const html = studentSheetHTML(c, tasks, (t) => subOf(t.id)?.grade ?? null, cell, gradePill, fmtGrade);
+  const html = studentSheetHTML(c, tasks, (t) => effGrade(c, t, subOf(t.id)), cell, gradePill, fmtGrade);
   // Dentro de "Mis calificaciones" va sin el marco de panel
   return inner ? html.replace('<div class="panel my-sheet">', '<div class="my-sheet inner">').replace(/<div class="panel-head">.*?<\/div>/, '') : html;
 }
@@ -265,7 +267,7 @@ function mySheet(c, tasks, inner = false) {
 function studentClassCard(c) {
   const tasks = tasksOf(c.id);
   const pend = tasks.filter((t) => !subOf(t.id)?.submittedAt && !c.archived).length;
-  const a = finalGrade(c, tasks, (t) => subOf(t.id)?.grade ?? null).final;
+  const a = finalGrade(c, tasks, (t) => effGrade(c, t, subOf(t.id))).final;
   return `
   <article class="class-card" style="--c:${colorVar(c.color)}" data-href="#/clase/${c.id}" tabindex="0">
     <div class="cc-top"><span class="chip mono chip-c">${icon('hash')}${esc(c.code || '')}</span>${c.archived ? `<span class="badge b-warning">${icon('archive')}Archivada</span>` : pend ? `<span class="badge b-accent">${pend} ${pend === 1 ? 'tarea pendiente' : 'tareas pendientes'}</span>` : `<span class="badge b-success dot">Al día</span>`}</div>
@@ -319,7 +321,7 @@ function classView(el, id) {
     const attBox = $('#cv-att'), attHTML = studentAttendanceHTML(c);
     if (attBox && attBox.dataset.h !== attHTML && !attBox.querySelector('[disabled]')) { attBox.innerHTML = attHTML; attBox.dataset.h = attHTML; }
     const tasks = tasksOf(id);
-    const a = finalGrade(c, tasks, (t) => subOf(t.id)?.grade ?? null).final;
+    const a = finalGrade(c, tasks, (t) => effGrade(c, t, subOf(t.id))).final;
     const hero = $('#cv-hero');
     hero.style.setProperty('--hc', colorVar(c.color));
     hero.innerHTML = `
@@ -371,7 +373,7 @@ function grades(el) {
     if (!S.ready.posts || !S.ready.subs) return;
     el.querySelector('#g-list').innerHTML = classes.length ? classes.map((c) => {
       const tasks = tasksOf(c.id);
-      const fr = finalGrade(c, tasks, (t) => subOf(t.id)?.grade ?? null), a = fr.final;
+      const fr = finalGrade(c, tasks, (t) => effGrade(c, t, subOf(t.id))), a = fr.final;
       return `<div class="panel" style="--c:${colorVar(c.color)}">
         <div class="panel-head">
           <h2><span class="chip chip-c mono">${esc(c.code || '')}</span>${esc(c.name)}${c.archived ? ' <span class="badge b-warning">Archivada</span>' : ''}</h2>
@@ -385,9 +387,9 @@ function grades(el) {
             return `<tr>
               <td class="who-cell"><b>${esc(t.title)}</b><div class="muted" style="font-size:12px">${catOf(c, t) ? `${esc(catOf(c, t).name)} (${catOf(c, t).weight} %) · ` : ''}${t.dueAt ? 'Límite: ' + fmtDate(t.dueAt) : 'Sin fecha límite'}</div></td>
               <td data-label="Estado"><span class="badge ${st.cls}">${st.label}</span></td>
-              <td data-label="Nota">${gradePill(s?.grade)}</td>
+              <td data-label="Nota">${s?.grade == null && zeroMissing(c) && isMissing(t, s) ? missingCell(gradePill) : gradePill(s?.grade)}</td>
               <td data-label="Retroalimentación" style="max-width:320px;font-size:13px;color:var(--text-2)">${isReturned(s) ? `<b style="color:var(--warning)">Por corregir:</b> ${esc(s.returnNote || '')}` : esc(s?.feedback || '—')}</td>
-              <td class="actions-cell"><div class="actions">${s?.grade != null ? `<button class="btn btn-sm" data-view="${t.id}">${icon('eye')}Detalle</button>` : c.archived ? '' : isReturned(s) ? `<button class="btn btn-sm btn-primary" data-view="${t.id}">${icon('undo')}Corregir</button>` : `<button class="btn btn-sm ${s?.submittedAt ? '' : 'btn-primary'}" data-view="${t.id}">${icon(s?.submittedAt ? 'edit' : 'upload')}${s?.submittedAt ? 'Editar' : 'Entregar'}</button>`}</div></td>
+              <td class="actions-cell"><div class="actions">${s?.grade != null ? `<button class="btn btn-sm" data-view="${t.id}">${icon('eye')}Detalle</button>` : c.archived || !canSubmit(t, s) ? '' : isReturned(s) ? `<button class="btn btn-sm btn-primary" data-view="${t.id}">${icon('undo')}Corregir</button>` : `<button class="btn btn-sm ${s?.submittedAt ? '' : 'btn-primary'}" data-view="${t.id}">${icon(s?.submittedAt ? 'edit' : 'upload')}${s?.submittedAt ? 'Editar' : 'Entregar'}</button>`}</div></td>
             </tr>`;
           }).join('')}</tbody></table></div>` : '<p class="muted">Esta clase aún no tiene tareas.</p>'}
       </div>`;

@@ -1,7 +1,7 @@
 // Vistas del docente
 import { S, ctx, go, classById, studentsOf, postsOf, tasksOf, studentById, notifyClass, byName, myClasses, isMine, isOwner, isCoTeacher, teacherName, myStudents, ownerOf } from './state.js';
 import { scopedSubs, coTeachersDialog, leaveClass, coInfo } from './coteach.js';
-import { gradingFieldsHTML, bindGradingFields, readGradingFields, categoryFieldHTML, categoriesOf, catOf, finalGrade, hasPlan, planText, breakdownHTML } from './evaluacion.js';
+import { gradingFieldsHTML, bindGradingFields, readGradingFields, categoryFieldHTML, categoriesOf, catOf, finalGrade, hasPlan, planText, breakdownHTML, effGrade, isMissing, zeroMissing, missingCell } from './evaluacion.js';
 import { icon } from './icons.js';
 import * as ui from './ui.js';
 import { LIMITS } from './firebase-config.js';
@@ -188,6 +188,10 @@ function editPostForm(post, { hasSubs = false } = {}) {
         <div class="field" id="ep-due-f" ${type === 'tarea' ? '' : 'hidden'}><label for="ep-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="ep-due" type="datetime-local" value="${toLocalInput(post.dueAt)}"></div><div class="error"></div></div>
         ${categoryFieldHTML(c, 'ep', post.category, type !== 'tarea')}
       </div>
+      <div class="close-box" id="ep-close-f" ${type === 'tarea' ? '' : 'hidden'}>
+        <label class="check"><input type="checkbox" id="ep-close" ${post.closeAtDue ? 'checked' : ''}><span><b>Cierre de la actividad</b> · no se reciben más trabajos después de la fecha límite</span></label>
+        <label class="check"><input type="checkbox" id="ep-closed" ${post.closed ? 'checked' : ''}><span><b>Cerrar la actividad ahora</b> · nadie más puede entregar, aunque no haya vencido</span></label>
+      </div>
       ${driveBlock('ep')}
       <div class="field"><span class="label">Archivos de código de apoyo</span>${dropzoneHTML(LIMITS.teacherExt, 'Agregue o quite archivos (clic o arrastrar)')}</div>
       <label class="check"><input type="checkbox" id="ep-notify"><span>Notificar a los estudiantes de la clase que la publicación fue actualizada</span></label>`,
@@ -202,6 +206,7 @@ function editPostForm(post, { hasSubs = false } = {}) {
         $m('#ep-type').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
         $m('#ep-due-f').hidden = type !== 'tarea';
         if ($m('#ep-cat-f')) $m('#ep-cat-f').hidden = type !== 'tarea';
+        $m('#ep-close-f').hidden = type !== 'tarea';
       });
       $m('[data-save]').addEventListener('click', (e) => {
         ui.clearErrors(el);
@@ -215,6 +220,7 @@ function editPostForm(post, { hasSubs = false } = {}) {
         }
         const data = { type, title: title.value.trim(), body: $m('#ep-body').value.trim(), links: cleanLinks($m('#ep-links').value), files, driveFiles, dueAt };
         if (type === 'tarea' && $m('#ep-cat')) data.category = $m('#ep-cat').value;
+        if (type === 'tarea') { data.closeAtDue = $m('#ep-close').checked; data.closed = $m('#ep-closed').checked; }
         const notify = $m('#ep-notify').checked;
         ui.withLoading(e.currentTarget, async () => {
           try {
@@ -371,6 +377,7 @@ function classDetail(el, id) {
                 <div class="field" id="cp-due-f" hidden><label for="cp-due">Fecha y hora límite</label><div class="input-wrap">${icon('calendar')}<input class="input" id="cp-due" type="datetime-local"></div><div class="error"></div></div>
                 <div id="cp-cat-slot" class="span-2-sm"></div>
               </div>
+              <label class="check close-check" id="cp-close-f" hidden><input type="checkbox" id="cp-close"><span><b>Cierre de la actividad</b> · no se reciben más trabajos después de la fecha límite</span></label>
               ${driveBlock('cp')}
               <div class="field"><span class="label">Archivos de código de apoyo <span class="hint">opcional</span></span>${dropzoneHTML(LIMITS.teacherExt, 'Adjunte ejemplos de código (clic o arrastrar)')}</div>
               ${audienceHTML('cp')}
@@ -427,6 +434,7 @@ function classDetail(el, id) {
     type = b.dataset.t;
     $('#cp-type').querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
     $('#cp-due-f').hidden = type !== 'tarea';
+    $('#cp-close-f').hidden = type !== 'tarea';
     paintCat();
   });
   // Categoría de evaluación de la tarea (se repinta si cambia el plan de la clase)
@@ -457,6 +465,7 @@ function classDetail(el, id) {
     const links = cleanLinks($('#cp-links').value);
     const post = { classId: id, ownerId: ownerOf(id), authorId: S.user.uid, authorName: teacherName(), type, title: title.value.trim(), body: $('#cp-body').value.trim(), links, files: composerFiles, driveFiles: composerDrive, dueAt };
     if (type === 'tarea' && $('#cp-cat')) post.category = $('#cp-cat').value;
+    if (type === 'tarea') post.closeAtDue = $('#cp-close').checked;
     const mail = audience.value();
     if (mail.mode === 'some' && !mail.uids.length) { ui.toast('Sin destinatarios', 'warn', 'Seleccione al menos un estudiante para el correo o elija "No enviar".'); return; }
     ui.withLoading(e.currentTarget, async () => {
@@ -474,6 +483,7 @@ function classDetail(el, id) {
         }
         audience.reset();
         ['#cp-title', '#cp-body', '#cp-links', '#cp-due'].forEach((s) => { $(s).value = ''; });
+        $('#cp-close').checked = false;
         composerFiles = []; composer.querySelector('.file-list').innerHTML = '';
         composerDrive = []; paintDrive();
         openComposer(false);
@@ -527,7 +537,7 @@ function classDetail(el, id) {
       <div class="table-wrap"><table class="tbl cards">
         <thead><tr><th>#</th><th>Estudiante</th><th>Código</th><th>Documento</th><th>${hasPlan(classById(id)) ? 'Definitiva' : 'Promedio'}</th><th></th></tr></thead>
         <tbody>${list.map((s, i) => {
-          const a = finalGrade(classById(id), tasks, (t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade ?? null).final;
+          const a = finalGrade(classById(id), tasks, (t) => effGrade(classById(id), t, subs.find((x) => x.postId === t.id && x.studentId === s.uid))).final;
           return `<tr class="clickable" data-student="${s.uid}">
             <td class="num" data-label="#">${i + 1}</td>
             <td class="who-cell"><div class="who">${avatar(s.fullName, '', s.uid)}<div style="min-width:0"><b>${esc(s.fullName)}</b><small>${esc(s.email)}</small></div></div></td>
@@ -553,10 +563,11 @@ function classDetail(el, id) {
     const num = new Map(tasksOf(id).map((t, i) => [t.id, i + 1]));
     const cell = (s, t) => {
       const x = subs.find((y) => y.postId === t.id && y.studentId === s.uid);
-      return `<td><button class="btn btn-ghost btn-sm" style="padding:0 4px" data-grade="${t.id}" data-sid="${s.uid}" title="Calificar">${x?.grade != null ? gradePill(x.grade) : x?.submittedAt ? '<span class="badge b-info">Por calificar</span>' : isReturned(x) ? `<span class="badge b-warning">${icon('undo')}Devuelta</span>` : '<span class="muted">—</span>'}</button></td>`;
+      const miss = zeroMissing(c) && isMissing(t, x);
+      return `<td><button class="btn btn-ghost btn-sm" style="padding:0 4px" data-grade="${t.id}" data-sid="${s.uid}" title="Calificar">${x?.grade != null ? gradePill(x.grade) : x?.submittedAt ? '<span class="badge b-info">Por calificar</span>' : miss ? missingCell(gradePill) : isReturned(x) ? `<span class="badge b-warning">${icon('undo')}Devuelta</span>` : '<span class="muted">—</span>'}</button></td>`;
     };
     const th = (t) => `<th class="task" title="${esc(t.title)}">T${num.get(t.id)} · ${esc(t.title.split('·')[0].trim().slice(0, 18))}</th>`;
-    const gradeOf = (s) => (t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade ?? null;
+    const gradeOf = (s) => (t) => effGrade(c, t, subs.find((x) => x.postId === t.id && x.studentId === s.uid));
     let head, body;
     if (cats.length) {
       const groups = cats.map((k) => ({ k, ts: tasks.filter((t) => catOf(c, t).id === k.id) }));
@@ -580,7 +591,7 @@ function classDetail(el, id) {
       <div class="table-wrap"><table class="tbl gradebook"><thead>${head}</thead><tbody>${body}</tbody></table></div>
       <p class="muted" style="font-size:12.5px;margin-top:10px">${cats.length
         ? 'La nota de cada categoría es el promedio de sus tareas calificadas; la definitiva pondera las categorías según su porcentaje. Si aún faltan categorías por calificar, la definitiva es parcial (se indica el % evaluado). Para cambiar los porcentajes use <b>Editar</b> clase.'
-        : 'La definitiva es el promedio simple de las tareas calificadas. Puede definir porcentajes por categoría en <b>Editar</b> clase.'} Haga clic en una celda para revisar o calificar.</p>`;
+        : 'La definitiva es el promedio simple de las tareas calificadas. Puede definir porcentajes por categoría en <b>Editar</b> clase.'} ${zeroMissing(c) ? ' Las tareas no entregadas a tiempo cuentan como <b>0.0 · No se entregó</b> (puede cambiarlo en Editar clase).' : ''} Haga clic en una celda para revisar o calificar.</p>`;
   }
   $('#gb').addEventListener('click', (e) => {
     const b = e.target.closest('[data-grade]'); if (!b) return;
@@ -659,7 +670,7 @@ function exportGradebook(classId, subs) {
     ...tasks.map((t) => (cats.length ? `${t.title} [${catOf(c, t).name}]` : t.title)),
     ...cats.map((k) => `${k.name} (${k.weight} %)`), 'Definitiva', ...(cats.length ? ['% evaluado', 'Acumulado'] : [])];
   const rows = studentsOf(classId).map((s) => {
-    const gradeOf = (t) => subs.find((x) => x.postId === t.id && x.studentId === s.uid)?.grade ?? null;
+    const gradeOf = (t) => effGrade(c, t, subs.find((x) => x.postId === t.id && x.studentId === s.uid));
     const r = finalGrade(c, tasks, gradeOf);
     return [s.studentCode, s.fullName, ...tasks.map((t) => f(gradeOf(t))), ...r.byCat.map((k) => f(k.avg)), f(r.final), ...(cats.length ? [r.covered, f(r.accumulated)] : [])];
   });
@@ -889,7 +900,7 @@ function studentDetail(el, uid) {
         </div>
         ${classes.length ? classes.map((c) => {
           const tasks = tasksOf(c.id);
-          const fr = finalGrade(c, tasks, (t) => subs.find((x) => x.postId === t.id)?.grade ?? null), a = fr.final;
+          const fr = finalGrade(c, tasks, (t) => effGrade(c, t, subs.find((x) => x.postId === t.id))), a = fr.final;
           return `<div class="panel" style="--c:${colorVar(c.color)}">
             <div class="panel-head">
               <h2><span class="chip chip-c mono">${esc(c.code || '')}</span>${esc(c.name)}${c.archived ? ' <span class="badge b-warning">Archivada</span>' : ''}</h2>
@@ -902,7 +913,7 @@ function studentDetail(el, uid) {
                 const x = subs.find((y) => y.postId === t.id);
                 const st = subBadge(x, t);
                 return `<tr><td class="who-cell"><b>${esc(t.title)}</b><div class="muted" style="font-size:12px">${t.dueAt ? 'Límite: ' + fmtDate(t.dueAt) : ''}</div></td>
-                  <td data-label="Estado">${st}</td><td data-label="Nota">${gradePill(x?.grade)}</td>
+                  <td data-label="Estado">${st}</td><td data-label="Nota">${x?.grade == null && zeroMissing(c) && isMissing(t, x) ? missingCell(gradePill) : gradePill(x?.grade)}</td>
                   <td data-label="Retroalimentación" style="max-width:280px;font-size:13px;color:var(--text-2)">${isReturned(x) ? `<b style="color:var(--warning)">Devuelta:</b> ${esc(x.returnNote || '')}` : esc(x?.feedback || '—')}</td>
                   <td class="actions-cell"><div class="actions"><button class="btn btn-sm" data-review="${t.id}">${icon('award')}${x?.submittedAt ? 'Revisar' : 'Calificar'}</button></div></td></tr>`;
               }).join('')}</tbody></table></div>` : '<p class="muted">Esta clase aún no tiene tareas.</p>'}

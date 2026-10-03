@@ -354,7 +354,7 @@ function updateChrome() {
   };
   if (S.role === 'teacher') setCount('clases', S.pendingSubs.length);
   else {
-    const pend = S.posts.filter((p) => p.type === 'tarea' && !S.classes.find((c) => c.id === p.classId)?.archived && !S.mySubs.some((s) => s.postId === p.id && s.submittedAt) && (!p.dueAt || p.dueAt > Date.now() || S.mySubs.some((s) => s.postId === p.id && s.status === 'devuelto'))).length;
+    const pend = S.posts.filter((p) => p.type === 'tarea' && p.closed !== true && !S.classes.find((c) => c.id === p.classId)?.archived && !S.mySubs.some((s) => s.postId === p.id && s.submittedAt) && (!p.dueAt || p.dueAt > Date.now() || S.mySubs.some((s) => s.postId === p.id && s.status === 'devuelto'))).length;
     setCount('clases', pend);
   }
 }

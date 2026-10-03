@@ -7,7 +7,7 @@ import { codeKey, docKey, uid as newId } from './util.js';
 import { emptyProposal, defaultFinal, currentPeriod } from './practica-model.js';
 import { openSession as attOpen, sessionKeys as attKeys, localParts as attLocal, keyOf as attKey, toMin as attMin } from './asistencia-model.js';
 
-const KEY = 'aulanexus-demo-v9';
+const KEY = 'aulanexus-demo-v10';
 const SESSION = 'aulanexus-demo-session';
 export const DEMO_ACCOUNTS = {
   admin: { email: TEACHER_EMAIL, password: 'Docente#2026' },
@@ -145,7 +145,7 @@ function seed() {
   const posts = [
     { id: 'p1', classId: 'c-ihm', type: 'anuncio', title: 'Bienvenidos al curso de IHM', body: 'Este semestre trabajaremos en proyectos reales de diseño centrado en el usuario. Revisen el microcurrículo y el cronograma de entregas.\nLas sesiones inician puntualmente a las 7:00 a. m.', links: [], files: [], createdAt: now - 20 * D },
     { id: 'p2', classId: 'c-ihm', type: 'material', title: 'Patrón Observer y retroalimentación de interfaz', body: 'Adjunto el ejemplo visto en clase y la lectura sobre las 10 heurísticas de Nielsen.', links: ['https://www.nngroup.com/articles/ten-usability-heuristics/'], files: [{ name: 'DemoObserver.java', size: TEACHER_JAVA.length, content: TEACHER_JAVA }], createdAt: now - 12 * D },
-    { id: 'p3', classId: 'c-ihm', type: 'tarea', category: 'k-seg', title: 'Taller 1 · Gestor de tareas con validación', body: 'Implementen en Java un gestor de tareas que valide entradas vacías y muestre mensajes de error comprensibles para el usuario. Entreguen el archivo .java y una breve justificación de decisiones de usabilidad.', links: [], files: [], dueAt: now - 3 * D, createdAt: now - 10 * D },
+    { id: 'p3', classId: 'c-ihm', type: 'tarea', category: 'k-seg', closeAtDue: true, title: 'Taller 1 · Gestor de tareas con validación', body: 'Implementen en Java un gestor de tareas que valide entradas vacías y muestre mensajes de error comprensibles para el usuario. Entreguen el archivo .java y una breve justificación de decisiones de usabilidad.', links: [], files: [], dueAt: now - 3 * D, createdAt: now - 10 * D },
     { id: 'p4', classId: 'c-ihm', type: 'tarea', category: 'k-seg', title: 'Taller 2 · Evaluación heurística', body: 'Evalúen la plataforma de matrícula de la universidad aplicando las 10 heurísticas. Entreguen el informe en texto plano con hallazgos y severidad (0–4).', links: [], files: [], dueAt: now + 4 * D, createdAt: now - 2 * D },
     { id: 'p5', classId: 'c-saw', type: 'anuncio', title: 'Laboratorio de OWASP Juice Shop', body: 'El próximo jueves trabajaremos en el laboratorio de redes. Traigan su portátil con Docker instalado.', links: ['https://owasp.org/www-project-juice-shop/'], files: [], createdAt: now - 6 * D },
     { id: 'p6', classId: 'c-saw', type: 'tarea', title: 'Reto 1 · Validador y hash de contraseñas', body: 'Construyan en Python un validador de contraseñas y una función de hash con sal usando PBKDF2. Entreguen el archivo .py.', links: [], files: [], dueAt: now - 1 * D, createdAt: now - 8 * D },
@@ -466,6 +466,11 @@ export function createBackend() {
       const id = `${s.postId}_${s.studentId}`;
       if (db.submissions[id]?.grade != null) throw err('permission-denied');
       if (db.classes[s.classId]?.ownerId === current?.uid) throw err('permission-denied');
+      // Igual que las reglas: actividad cerrada (salvo corregir una entrega devuelta)
+      const p = db.posts[s.postId], prev = db.submissions[id], now = Date.now();
+      const closed = p && (p.closed === true || (p.closeAtDue === true && p.dueAt && now > p.dueAt));
+      const retOk = prev?.status === 'devuelto' && (p?.closed !== true || (prev.returnDueAt && now <= prev.returnDueAt));
+      if (closed && !retOk) throw err('permission-denied');
       db.submissions[id] = { id, ...clone(s), grade: null, feedback: '', status: 'entregado', submittedAt: Date.now(), gradedAt: null };
       commit();
     },

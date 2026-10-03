@@ -27,6 +27,27 @@ export function catOf(c, post) {
   if (!cats.length) return null;
   return cats.find((k) => k.id === post?.category) || cats[0];
 }
+// ---------------------------------------------------------------------
+//  Entregas faltantes: 0.0 "No se entregó" (configurable por clase, activo por defecto)
+//  Falta = no hay entrega enviada y ya pasó el plazo (la fecha límite, o el nuevo plazo si fue devuelta),
+//  o el docente cerró la actividad.
+// ---------------------------------------------------------------------
+export const zeroMissing = (c) => c?.grading?.zeroMissing !== false;
+export function isMissing(t, sub, now = Date.now()) {
+  if (sub?.grade != null || sub?.submittedAt) return false;
+  const returned = !!sub && sub.status === 'devuelto';
+  const limit = returned ? sub.returnDueAt : t?.dueAt;
+  // Cerrada por el docente antes de vencer: ya no se puede entregar (salvo una devuelta con plazo vigente)
+  if (t?.closed === true && !(returned && (!limit || now <= limit))) return true;
+  return !!limit && now > limit;
+}
+// Nota que cuenta para el promedio: la calificación, 0 si no se entregó a tiempo, o null (pendiente)
+export function effGrade(c, t, sub, now = Date.now()) {
+  if (sub?.grade != null) return Number(sub.grade);
+  return zeroMissing(c) && isMissing(t, sub, now) ? 0 : null;
+}
+export const missingCell = (pill) => `<span class="miss-cell">${pill(0)}<small>No se entregó</small></span>`;
+
 export const planText = (c) => categoriesOf(c).map((k) => `${k.name} ${k.weight} %`).join(' · ');
 
 // gradeOf(task) → nota (0–5) o null
@@ -62,6 +83,7 @@ export function gradingFieldsHTML(c) {
   return `
   <div class="ev-cfg" data-ev-cfg>
     <label class="check"><input type="checkbox" data-ev-on ${cats.length ? 'checked' : ''}><span><b>Usar porcentajes de evaluación</b> · si no, la definitiva es el promedio simple de las tareas</span></label>
+    <label class="check ev-zero"><input type="checkbox" data-ev-zero ${c?.grading?.zeroMissing === false ? '' : 'checked'}><span><b>Tareas no entregadas a tiempo valen 0.0</b> · se muestran como "No se entregó" y cuentan en el promedio</span></label>
     <div class="ev-body">
       <div class="ev-presets"><span class="muted">Plantillas:</span>${PRESETS.map((p, i) => `<button type="button" class="btn btn-sm" data-ev-preset="${i}">${esc(p.label)}</button>`).join('')}</div>
       <div class="ev-rows" data-ev-rows>${cats.map(rowHTML).join('')}</div>
@@ -114,7 +136,8 @@ export function bindGradingFields(root) {
 export function readGradingFields(root) {
   const box = root.querySelector('[data-ev-cfg]'); if (!box) return { grading: null, error: '' };
   const errEl = box.querySelector('[data-ev-err]');
-  if (!box.querySelector('[data-ev-on]').checked) { errEl.textContent = ''; return { grading: { categories: [] }, error: '' }; }
+  const zero = !!box.querySelector('[data-ev-zero]')?.checked;
+  if (!box.querySelector('[data-ev-on]').checked) { errEl.textContent = ''; return { grading: { categories: [], zeroMissing: zero }, error: '' }; }
   const cats = [...box.querySelectorAll('[data-ev-row]')].map((r) => ({
     id: r.dataset.id, name: r.querySelector('[data-ev-name]').value.trim(), weight: Math.round(Number(r.querySelector('[data-ev-weight]').value) || 0)
   }));
@@ -125,7 +148,7 @@ export function readGradingFields(root) {
   else if (new Set(cats.map((k) => k.name.toLowerCase())).size !== cats.length) error = 'Hay categorías con el mismo nombre.';
   else if (cats.reduce((s, k) => s + k.weight, 0) !== 100) error = `Los porcentajes deben sumar 100 % (ahora suman ${cats.reduce((s, k) => s + k.weight, 0)} %).`;
   errEl.textContent = error;
-  return { grading: { categories: cats }, error };
+  return { grading: { categories: cats, zeroMissing: zero }, error };
 }
 
 // ---------------------------------------------------------------------
@@ -183,6 +206,6 @@ export function studentSheetHTML(c, tasks, gradeOf, cellOf, pill, fmt) {
       <tbody><tr>${row}<td class="final">${pill(r.final)}${partial ? `<small class="gb-cov">${r.covered} %</small>` : ''}</td></tr></tbody></table></div>
     <p class="muted" style="font-size:12.5px;margin-top:10px">${r.weighted
       ? `${partial ? `Definitiva parcial: se ha evaluado el ${r.covered} % del curso. Acumulado: <b>${fmt(r.accumulated)}</b> de 5.0. ` : r.final != null ? `Acumulado: <b>${fmt(r.accumulated)}</b> de 5.0. ` : ''}La nota de cada categoría es el promedio de sus tareas calificadas.`
-      : 'La definitiva es el promedio de las tareas calificadas.'} Solo usted ve esta planilla.</p>
+      : 'La definitiva es el promedio de las tareas calificadas.'}${zeroMissing(c) ? ' Las tareas no entregadas a tiempo cuentan como 0.0.' : ''} Solo usted ve esta planilla.</p>
   </div>`;
 }

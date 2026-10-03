@@ -44,11 +44,20 @@ export function subBadge(sub, post) {
 
 // Estado de una tarea para un estudiante
 export const isReturned = (sub) => !!sub && sub.status === 'devuelto' && !sub.submittedAt;
+// Actividad cerrada: el docente la cerró, o pidió cerrarla al vencer y ya venció
+export const taskClosed = (post, now = Date.now()) => !!post && (post.closed === true || (post.closeAtDue === true && !!post.dueAt && now > post.dueAt));
+// ¿Puede el estudiante entregar? (una entrega devuelta siempre se puede corregir dentro de su plazo)
+export function canSubmit(post, sub, now = Date.now()) {
+  if (sub?.grade != null) return false;
+  if (isReturned(sub)) return !post.closed || !!sub.returnDueAt && now <= sub.returnDueAt;
+  return !taskClosed(post, now);
+}
 export function taskStatus(post, sub) {
   if (sub && sub.grade != null) return { key: 'graded', label: 'Calificada', cls: 'b-success', icon: 'award' };
   if (isReturned(sub)) return { key: 'returned', label: 'Devuelta · corregir', cls: 'b-warning', icon: 'undo' };
   if (sub && sub.submittedAt && sub.returnCount) return { key: 'submitted', label: 'Corrección enviada', cls: 'b-info', icon: 'check' };
   if (sub && sub.submittedAt) return { key: 'submitted', label: sub.late ? 'Entregada tarde' : 'Entregada', cls: sub.late ? 'b-warning' : 'b-info', icon: 'check' };
+  if (taskClosed(post)) return { key: 'missing', label: 'No se entregó', cls: 'b-danger', icon: 'x' };
   if (post.dueAt && post.dueAt < Date.now()) return { key: 'overdue', label: 'Vencida', cls: 'b-danger', icon: 'clock' };
   return { key: 'pending', label: 'Pendiente', cls: 'b-accent', icon: 'clock' };
 }
@@ -102,7 +111,7 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
     const due = p.dueAt ? `<span class="due">${icon('clock')}${fmtDate(p.dueAt)} <span class="muted" style="font-weight:500">· ${timeLeft(p.dueAt)}</span></span>` : `<span class="due">${icon('clock')}Sin fecha límite</span>`;
     if (role === 'teacher') {
       const pct = stats && stats.total ? Math.round((stats.submitted / stats.total) * 100) : 0;
-      foot = `<div class="post-foot">${due}
+      foot = `<div class="post-foot">${due}${taskClosed(p) ? ` <span class="badge b-danger">${icon('lock')}Cerrada</span>` : p.closeAtDue ? ` <span class="badge" title="No se recibirán trabajos después de la fecha límite">${icon('lock')}Cierra al vencer</span>` : ''}
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <span class="muted" style="font-size:12.5px">${stats?.submitted || 0}/${stats?.total || 0} entregas · ${stats?.graded || 0} calificadas</span>
           <div class="progress"><i style="width:${pct}%"></i></div>
@@ -113,7 +122,7 @@ export function postCard(p, { role, sub, stats, showClass = false, noFoot = fals
       const archived = c?.archived;
       const btn = st.key === 'graded'
         ? `<button class="btn btn-sm" data-act="view-grade" data-id="${p.id}">${icon('award')}Ver calificación ${gradePill(sub.grade)}</button>`
-        : archived ? '' : st.key === 'returned'
+        : archived ? '' : !canSubmit(p, sub) ? `<span class="badge">${icon('lock')}Actividad cerrada</span>` : st.key === 'returned'
           ? `<button class="btn btn-sm btn-primary" data-act="submit" data-id="${p.id}">${icon('upload')}Corregir y reenviar</button>`
           : `<button class="btn btn-sm ${st.key === 'submitted' ? '' : 'btn-primary'}" data-act="submit" data-id="${p.id}">${icon(st.key === 'submitted' ? 'edit' : 'upload')}${st.key === 'submitted' ? 'Editar entrega' : 'Entregar'}</button>`;
       foot = `${st.key === 'returned' ? returnNotice(sub) : ''}<div class="post-foot">${due}<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="badge ${st.cls}">${icon(st.icon)}${st.label}</span>${btn}</div></div>`;
