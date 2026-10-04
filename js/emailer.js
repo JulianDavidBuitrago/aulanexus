@@ -2,7 +2,7 @@
 //  Avisos por correo electrónico de nuevas publicaciones
 //  El envío lo hace un "relé" gratuito en Google Apps Script que se
 //  despliega con la cuenta de Google del docente (ver README §8.7 y
-//  public/apps-script/AulaNexusCorreo.gs). El relé valida el token de
+//  tools/apps-script/AulaNexusCorreo.gs). El relé valida el token de
 //  Firebase del docente y solo escribe a estudiantes inscritos en la clase.
 // =====================================================================
 import * as cfg from './firebase-config.js';
@@ -46,6 +46,37 @@ export async function sendPostEmail(post, uids) {
   if (!data.ok) throw new Error(data.error || 'No se pudieron enviar los correos.');
   if (data.sent) await ctx.B.markEmailed?.(post.id, data.sent).catch(() => {});
   return data;
+}
+
+// ---------- Aviso individual: calificación o devolución ----------
+// El relé lee la nota / la observación directamente de Firestore (no se envían en la petición).
+const RESULT_KEY = 'an-mail-result';
+export const resultMailPref = () => store.get(RESULT_KEY) !== '0';
+export const setResultMailPref = (on) => store.set(RESULT_KEY, on ? '1' : '0');
+export async function sendResultEmail(post, studentId, kind) {
+  if (ctx.demo) { await new Promise((r) => setTimeout(r, 700)); return { ok: true, sent: 1, demo: true }; }
+  const idToken = await ctx.B.idToken();
+  let res;
+  try {
+    res = await fetch(String(RELAY.url).trim(), {
+      method: 'POST',
+      body: JSON.stringify({ idToken, kind, postId: post.id, studentId, siteUrl: location.origin + location.pathname })
+    });
+  } catch {
+    throw new Error('No se pudo contactar el servicio de correo.');
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* respuesta no JSON */ }
+  if (!data) throw new Error('El servicio de correo respondió de forma inesperada.');
+  // Un script anterior a la 1.3 no conoce "kind" y responde "No hay destinatarios"
+  if (!data.ok && data.code === 'empty' && !data.kind) throw new Error('Actualice el script de correo (versión 1.3) para enviar avisos de calificación y devolución.');
+  if (!data.ok) throw new Error(data.error || 'No se pudo enviar el correo.');
+  return data;
+}
+// Casilla reutilizable (calificar / devolver)
+export function resultMailCheck(id, label) {
+  if (!emailConfigured()) return '';
+  return `<label class="check mail-result"><input type="checkbox" id="${id}" ${resultMailPref() ? 'checked' : ''}><span>${icon('mail')}${label}</span></label>`;
 }
 
 export function mailResultText(r) {
@@ -178,7 +209,7 @@ export function emailHelp() {
       <p>AulaNexus puede enviar un correo a los estudiantes cuando usted publica una tarea, material o anuncio. El envío se hace desde su propia cuenta de Google, sin costo.</p>
       <ol class="help-steps">
         <li>Abra <b>script.google.com</b> con su cuenta y cree un proyecto nuevo.</li>
-        <li>Pegue el archivo <span class="mono">public/apps-script/AulaNexusCorreo.gs</span> del proyecto y complete su bloque <span class="mono">CONFIG</span>.</li>
+        <li>Pegue el archivo <span class="mono">tools/apps-script/AulaNexusCorreo.gs</span> del proyecto y complete su bloque <span class="mono">CONFIG</span>.</li>
         <li><b>Implementar → Nueva implementación → Aplicación web</b>, ejecutar como <b>Yo</b> y acceso <b>Cualquier usuario</b>.</li>
         <li>Copie la URL que termina en <span class="mono">/exec</span> y agréguela en <span class="mono">firebase-config.js</span> como <span class="mono">EMAIL_RELAY</span>.</li>
       </ol>

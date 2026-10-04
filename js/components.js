@@ -5,7 +5,7 @@ import { esc, initials, fmtDate, timeAgo, timeLeft, fmtGrade, gradeTone, linkify
 import { LIMITS } from './firebase-config.js';
 import { S, ctx, classById, ownerOf, isOwner, isCoTeacher } from './state.js';
 import { collectDrive, driveCards, parseDriveUrl } from './drive.js';
-import { emailConfigured } from './emailer.js';
+import { emailConfigured, resultMailCheck, sendResultEmail, setResultMailPref } from './emailer.js';
 
 export const avatar = (name, size = '', key) =>
   `<div class="avatar ${size}" style="--h:${hueOf(key || name || '')}" aria-hidden="true">${esc(initials(name))}</div>`;
@@ -321,7 +321,8 @@ export function openReview({ post, student, sub }) {
         <label for="rv-fb">Retroalimentación</label>
         <textarea class="input" id="rv-fb" rows="5" placeholder="Fortalezas, aspectos por mejorar y recomendaciones…">${esc(sub?.feedback || '')}</textarea>
       </div>
-      <div class="callout" style="font-size:12.5px">${icon('bell')}<div>El estudiante recibirá una notificación y solo él podrá ver esta calificación.</div></div>
+      ${resultMailCheck('rv-mail', 'Enviar aviso por correo al estudiante con la nota y la retroalimentación')}
+      <div class="callout" style="font-size:12.5px">${icon('bell')}<div>El estudiante recibirá una notificación en la plataforma y solo él podrá ver esta calificación.</div></div>
       ${sub?.submittedAt ? `
       <div class="return-box">
         <button type="button" class="btn btn-warn-soft btn-block" data-ret-toggle aria-expanded="false">${icon('undo')}Devolver para corrección</button>
@@ -336,6 +337,7 @@ export function openReview({ post, student, sub }) {
             <input class="input" id="rv-ret-due" type="datetime-local">
             <div class="error"></div>
           </div>
+          ${resultMailCheck('rv-ret-mail', 'Enviar aviso por correo al estudiante con lo que debe corregir')}
           ${sub.grade != null ? `<p class="muted" style="font-size:12.5px;margin:0">${icon('alert')} La nota actual (${Number(sub.grade).toFixed(1)}) se retirará hasta que califique la nueva entrega.</p>` : ''}
           <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
             <button type="button" class="btn btn-sm" data-ret-cancel>Cancelar</button>
@@ -374,10 +376,20 @@ export function openReview({ post, student, sub }) {
             await ctx.B.addNotifications([{ userId: studentId, type: 'returned', title: `Entrega devuelta · ${c?.name || 'Clase'}`,
               message: `${post.title}: ${note.length > 90 ? note.slice(0, 90) + '…' : note}`, link: `#/clase/${post.classId}`, classId: post.classId }]).catch(() => {});
             toast('Entrega devuelta', 'success', `Se notificó a ${name}; ya puede cargar de nuevo su actividad.`);
+            mailResult(el.querySelector('#rv-ret-mail'), studentId, 'return');
             m.close();
           } catch (err) { toast('No se pudo devolver', 'error', errMsg(err)); }
         }));
       }
+      // Correo opcional (se recuerda la última elección); se envía después de guardar
+      const mailResult = (chk, studentId, kind) => {
+        if (!chk) return;
+        setResultMailPref(chk.checked);
+        if (!chk.checked) return;
+        sendResultEmail(post, studentId, kind)
+          .then((r) => toast('Correo enviado', 'success', `${name} recibió el aviso de ${kind === 'grade' ? 'su calificación' : 'la devolución'} por correo.${r.demo ? ' (Demostración: no se envían correos reales.)' : ''}`))
+          .catch((er) => toast('No se envió el correo', 'error', er.message, 9000));
+      };
       el.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { gi.value = b.dataset.q; gi.focus(); }));
       el.querySelector('[data-save]').addEventListener('click', (e) => withLoading(e.currentTarget, async () => {
         const g = parseFloat(String(gi.value).replace(',', '.'));
@@ -393,6 +405,7 @@ export function openReview({ post, student, sub }) {
           });
           await ctx.B.addNotifications([{ userId: studentId, type: 'grade', title: `Nueva calificación · ${c?.name || 'Clase'}`, message: `${post.title}: ${grade.toFixed(1)}`, link: '#/calificaciones', classId: post.classId }]);
           toast('Calificación registrada', 'success', `${name}: ${grade.toFixed(1)} — se notificó al estudiante.`);
+          mailResult(el.querySelector('#rv-mail'), studentId, 'grade');
           m.close();
         } catch (err) { toast('No se pudo guardar', 'error', errMsg(err)); }
       }));
